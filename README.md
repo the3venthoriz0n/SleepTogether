@@ -46,6 +46,9 @@ group. That also makes Survival Mode's need for sleep awkward. Sleep Together fi
 2. Copy the two files from the zip over the files in `Resources/strpm-chat-relay`, replacing them.
 3. Restart the server.
 
+Note: any party leader on the server can change the time for everyone (see "Known unknowns"), so only
+use this on a server whose players you trust.
+
 Why it replaces the relay instead of being a separate resource: the Sleep Together code is built into the
 STRPM chat relay. Server resources load in no fixed order and the relay stops later handlers from seeing a
 message, so a separate script could not be made reliable. The relay's name and version are left unchanged
@@ -61,10 +64,23 @@ put the new relay files in `server/upstream/strpm-chat-relay/` and run `python -
 - your overrides: `Data\MCM\Settings\SleepTogether.ini` (wins over the default)
 - log: `Documents\My Games\Skyrim Special Edition\SKSE\SleepTogether.log`
 
-The plugin re-reads the settings about once a second, so MCM changes apply without a restart.
+The plugin re-reads the settings about once a second, so changes to the on/off switch and wake hour apply without a restart. The debug logging switch is only
+applied when the game loads.
 
 ## Known unknowns (test these first)
 
+**Important: the date does not move forward.** The server can only set the time of day. The day, month and
+year stay as they were, and the server's Lua API has no way to set the date (the game client only counts
+days passed as time ticks by). So if the leader sleeps at 22:00 and the wake hour is 8, the clock goes to
+08:00 of the **same** day, 14 hours back. Survival Mode, or any script that measures elapsed game time, may see
+little or no sleep. The planned follow-up is a small server patch that adds a `SetDate` binding; it is not done.
+Until then this is a test build, and sleeping after midnight with a wake hour later the same day (a
+"morning-after" sleep) behaves best.
+
+- Any player can make a party of one and become its leader, so the leader of any party, including a
+  stranger's one-person party, can change the time for the whole server. "Only the party leader" does not mean
+  "only your friends' party leader". The "only when alone" rule stops a player with no party, but not a
+  party-of-one leader. This only matters on a server with other people on it; it is meant for a private server.
 - This has not been played yet. Everything here is from reading the code.
 - Sleeping in the same bed as another player is untested.
 - Whether the time jump looks abrupt in game.
@@ -95,6 +111,11 @@ The plugin re-reads the settings about once a second, so MCM changes apply witho
 | Two players in the same double bed | |
 | A player disconnects during sleep | |
 | Leader sleeps twice within 5 seconds: second request is refused | |
+| Activate a bed, then cancel the sleep menu without sleeping: does a request go out, does time change? (see the `Sleep state:` lines and the server `[SleepTogether]` lines) | |
+| Open the Sleep/Wait menu, move the hours slider, then press Sleep: send the `Sleep menu probe:` lines (needed before the chosen hour can be used) | |
+| Sleep in the evening (for example 22:00): after the clock change, check the in-game date, whether days passed changed, and whether Survival fatigue recovered | |
+| After the first successful advance: is the server's time scale still what it was configured to? (the handler falls back to 20 if it cannot read it) | |
+| If the server log never shows a `[SleepTogether]` line: in the STRPM plugin log, is the backend the STR bridge? (a UDP backend would not reach the STR server) | |
 
 After testing, please send back: `SleepTogether.log`, the `[SleepTogether]` lines from the server log, and the
 `Sleep menu probe:` and `Sleep state:` lines from the plugin log.
