@@ -31,6 +31,20 @@ foreach ($z in @($zip, $zipSrv)) { if (Test-Path -LiteralPath $z) { Remove-Item 
 Compress-Archive -Path $data -DestinationPath $zip -CompressionLevel Optimal -Force
 Write-Host "Created $zip"
 
-# Server zip: folder strpm-chat-relay\ with main.lua and the manifest.
-Compress-Archive -Path $relay -DestinationPath $zipSrv -CompressionLevel Optimal -Force
+# Server zip: built with System.IO.Compression so entry names use forward slashes
+# (Compress-Archive on Windows PowerShell 5.1 writes backslashes, which break on a Linux server).
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [System.IO.Compression.ZipFile]::Open($zipSrv, [System.IO.Compression.ZipArchiveMode]::Create)
+try {
+    foreach ($file in @($main, $mani)) {
+        $name  = "strpm-chat-relay/" + (Split-Path -Leaf $file)
+        $entry = $archive.CreateEntry($name, [System.IO.Compression.CompressionLevel]::Optimal)
+        $in    = [System.IO.File]::OpenRead($file)
+        $out   = $entry.Open()
+        try { $in.CopyTo($out) } finally { $out.Dispose(); $in.Dispose() }
+    }
+} finally {
+    $archive.Dispose()
+}
 Write-Host "Created $zipSrv"

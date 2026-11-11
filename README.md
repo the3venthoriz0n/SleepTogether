@@ -83,7 +83,7 @@ The plugin re-reads the settings about once a second, so MCM changes apply witho
     (or the server was not restarted).
 - **No "Sleep Together" entry in the MCM:** enable `SleepTogether.esp`, make sure MCM Helper is installed, and
   load a save. Then check `Documents\My Games\Skyrim Special Edition\SKSE\MCMHelper.log`: it should list the
-  mod, and a line such as `Failed to parse config for SleepTogether` means the config was rejected.
+  mod, and a line saying the config failed to parse means the config was rejected.
 
 ## In-game test list
 
@@ -111,8 +111,8 @@ interpreter for the server tests.
   `cmake --build out\build-release --config Release --target SleepTogetherTests` then
   `ctest --test-dir out\build-release -C Release --output-on-failure`.
 - Zips: `make_archive.bat` writes `dist\SleepTogether-0.1.0.zip` (the `Data` folder) and
-  `dist\SleepTogether-Server-0.1.0.zip` (the `strpm-chat-relay` folder). It refuses to run if the DLL is not
-  the current build or the server resource lacks the Sleep Together code.
+  `dist\SleepTogether-Server-0.1.0.zip` (the `strpm-chat-relay` folder). It refuses to run if the DLL lacks the 0.1.0
+  version marker, or if the server relay file lacks the Sleep Together handler.
 
 ## License
 
