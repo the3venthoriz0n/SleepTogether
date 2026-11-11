@@ -1,6 +1,120 @@
 # Sleep Together
 
-SKSE plugin for Skyrim SE/AE (1.6.1170 and 1.7.104) that links your sleeping with your party's.
-Work in progress (0.1.0 scaffold). Settings are in the MCM (requires SkyUI and MCM Helper).
+Shared sleeping for Skyrim Together Reborn (STR) parties, for Skyrim Special Edition / Anniversary Edition.
 
-Build: `build_release.bat` from a VS x64 developer prompt; package: `make_archive.bat`.
+Status: **0.1.0 first test build.** It compiles and its logic tests pass; it has not been played yet.
+See "Known unknowns".
+
+## What it does
+
+On an STR server the server owns the game clock, so sleeping in vanilla Skyrim changes nothing for the
+group. That also makes Survival Mode's need for sleep awkward. Sleep Together fixes this:
+
+- When the **party leader** sleeps, the server sets the time of day for **everyone** and sends a chat
+  message to all players, for example `[Sleep Together] Name slept. It is now 08:00.`
+- If a **non-leader** sleeps, nothing changes except a chat message to that player: `Only the party leader can
+  advance time.`
+- A player who is **not in a party** can only advance time when they are the only player connected.
+- The server accepts at most one advance every 5 seconds.
+- The wake-up time is a **fixed hour set in the MCM** (default 08:00) in this first release. The hour you
+  pick in the sleep menu is not used yet. The plugin writes `Sleep menu probe:` lines to its log so that
+  the place to read it from can be found for a later version.
+
+## Requirements
+
+- Skyrim SE / AE 1.6.1170 or 1.7.104, with SKSE and Address Library
+- Skyrim Together Reborn 1.8.4
+- STRPluginMessagingAPI and the STRPM Bridge, 0.10.1
+- MCM Helper and SkyUI (for the settings menu)
+- **The server admin must install the server zip** (see "Install, server admin"). Without it the server
+  ignores sleep requests.
+
+## Install, players
+
+1. Install `SleepTogether-0.1.0.zip` with Vortex (or copy its `Data` folder into your Skyrim `Data` folder).
+2. Enable `SleepTogether.esp` in your plugin list. It is a small plugin with one quest, no gameplay: MCM Helper
+   only lists a mod whose plugin is loaded.
+3. Settings are in the SkyUI Mod Configuration Menu under "Sleep Together": on/off, wake hour (0 to 23,
+   default 8) and debug logging.
+
+## Install, server admin
+
+`SleepTogether-Server-0.1.0.zip` contains a folder `strpm-chat-relay` with `main.lua` and
+`strpm-chat-relay.manifest`.
+
+1. Make a backup copy of your server's `Resources/strpm-chat-relay` folder.
+2. Copy the two files from the zip over the files in `Resources/strpm-chat-relay`, replacing them.
+3. Restart the server.
+
+Why it replaces the relay instead of being a separate resource: the Sleep Together code is built into the
+STRPM chat relay. Server resources load in no fixed order and the relay stops later handlers from seeing a
+message, so a separate script could not be made reliable. The relay's name and version are left unchanged
+on purpose.
+
+If the relay is updated upstream, the Sleep Together server code has to be built into the new version again:
+put the new relay files in `server/upstream/strpm-chat-relay/` and run `python -I tools/build_server_resource.py`
+(see `server/upstream/README.md`), then package with `make_archive.bat`.
+
+## Settings and files
+
+- defaults, shipped with the mod: `Data\MCM\Config\SleepTogether\settings.ini`
+- your overrides: `Data\MCM\Settings\SleepTogether.ini` (wins over the default)
+- log: `Documents\My Games\Skyrim Special Edition\SKSE\SleepTogether.log`
+
+The plugin re-reads the settings about once a second, so MCM changes apply without a restart.
+
+## Known unknowns (test these first)
+
+- This has not been played yet. Everything here is from reading the code.
+- Sleeping in the same bed as another player is untested.
+- Whether the time jump looks abrupt in game.
+- Whether cancelling a bed activation can still trigger a request. The `Sleep state:` lines in the log show
+  the sequence of sleep states.
+- The server reads the time scale from `CalendarService`; if that is unavailable it falls back to 20.
+- The server's `IsPartyLeader` behaviour was checked in the STR source only.
+- The server code has only been tested with stand-in objects, not on a real STR server.
+
+## Troubleshooting
+
+- **Nothing happens when you sleep:**
+  - In `SleepTogether.log`, look for `Local sleep started` and `Sleep request sent`. If they are missing,
+    check the mod is enabled in the MCM and that the STRPM Bridge is installed.
+  - In the server log, look for `[SleepTogether]` lines. If there are none, the relay was not replaced
+    (or the server was not restarted).
+- **No "Sleep Together" entry in the MCM:** enable `SleepTogether.esp`, make sure MCM Helper is installed, and
+  load a save. Then check `Documents\My Games\Skyrim Special Edition\SKSE\MCMHelper.log`: it should list the
+  mod, and a line such as `Failed to parse config for SleepTogether` means the config was rejected.
+
+## In-game test list
+
+| Test | Result |
+| --- | --- |
+| Leader sleeps: time changes for everyone, chat message to all | |
+| Non-leader sleeps: time does not change, only they get the "only the party leader" message | |
+| Leader sleeps while a non-leader is also in a bed | |
+| Two players in the same double bed | |
+| A player disconnects during sleep | |
+| Leader sleeps twice within 5 seconds: second request is refused | |
+
+After testing, please send back: `SleepTogether.log`, the `[SleepTogether]` lines from the server log, and the
+`Sleep menu probe:` and `Sleep state:` lines from the plugin log.
+
+## Build
+
+Needs Visual Studio (C++), CMake and vcpkg (`VCPKG_ROOT`, default `C:\dev\vcpkg`), Python 3 and a Lua
+interpreter for the server tests.
+
+- Plugin: run `build_release.bat` from a Visual Studio x64 developer prompt.
+- Server resource: `python -I tools/build_server_resource.py` regenerates `package/Server/strpm-chat-relay`
+  from `server/upstream` and `server/sleeptogether`.
+- Tests: `lua tests/test_logic.lua`, `lua tests/test_handler.lua`, and the C++ tests with
+  `cmake --build out\build-release --config Release --target SleepTogetherTests` then
+  `ctest --test-dir out\build-release -C Release --output-on-failure`.
+- Zips: `make_archive.bat` writes `dist\SleepTogether-0.1.0.zip` (the `Data` folder) and
+  `dist\SleepTogether-Server-0.1.0.zip` (the `strpm-chat-relay` folder). It refuses to run if the DLL is not
+  the current build or the server resource lacks the Sleep Together code.
+
+## License
+
+CommonLibSSE-NG is GPL-3.0-or-later and is linked into the plugin, so this plugin is GPL too (see COPYING).
+The bundled copy of the STRPM chat relay is MIT upstream (see `server/upstream/README.md`).
