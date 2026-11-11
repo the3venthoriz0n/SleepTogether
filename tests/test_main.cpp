@@ -1,8 +1,10 @@
 #include "Core.h"
+#include "Protocol.h"
 
 #include <cmath>
 #include <cstdio>
 #include <optional>
+#include <string>
 
 using namespace SleepTogether;
 
@@ -29,6 +31,25 @@ int main()
     CHECK(Core::FormatHour(0) == "00:00");
     CHECK(Core::AdvanceMessage("Alice", 8) == "[Sleep Together] Alice slept. It is now 08:00.");
     CHECK(Core::DenyMessage() == "[Sleep Together] Only the party leader can advance time.");
+    CHECK(std::string(Protocol::kChannel) == "sleeptogether.v1");
+    CHECK(Protocol::FormatSleepRequest(8) == "STv1|SLEEP|8");
+    CHECK(Protocol::ParseSleepRequest("STv1|SLEEP|8") == 8);
+    CHECK(Protocol::ParseSleepRequest("STv1|SLEEP|0") == 0);
+    CHECK(Protocol::ParseSleepRequest("STv1|SLEEP|23") == 23);
+    CHECK(Protocol::ParseSleepRequest("STv1|SLEEP|08") == 8);
+    for (int h = 0; h < 24; ++h)
+        CHECK(Protocol::ParseSleepRequest(Protocol::FormatSleepRequest(h)) == h);
+    for (auto bad : {"STv1|SLEEP|24", "STv1|SLEEP|-1", "STv1|SLEEP|", "STv1|SLEEP|8x",
+                     "STv2|SLEEP|8", "", "STv1|SLEEP|08 ", "hello", "STv1|SLEEP|+8",
+                     " STv1|SLEEP|8", "STv1|SLEEP|8\n", "STv1|SLEEP|8|", "stv1|SLEEP|8",
+                     "STv1|SLEEP|99999999999999999999", "STv1|SLEEP|\xD9\xA8"})
+        CHECK(!Protocol::ParseSleepRequest(bad));
+    CHECK(!Protocol::ParseSleepRequest(std::string("STv1|SLEEP|8\0", 13)));
+    CHECK(!Protocol::ParseSleepRequest(std::string("STv1|SLEEP|\0" "8", 13)));
+    CHECK(!Protocol::ParseSleepRequest(std::string(5000, '8')));
+    CHECK(!Protocol::ParseSleepRequest("STv1|SLEEP|" + std::string(21, '0') + "8"));
+    CHECK(Protocol::ParseSleepRequest("STv1|SLEEP|" + std::string(20, '0') + "8") == 8);
+    CHECK(!Protocol::ParseSleepRequest("STv1|SLEEP|" + std::string(22, '0')));
     std::puts("All tests passed");
     return 0;
 }

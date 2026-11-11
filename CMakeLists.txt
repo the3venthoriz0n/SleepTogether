@@ -23,6 +23,8 @@ set(PROJECT_SOURCES
     src/Config.cpp
     src/Core.h
     src/Core.cpp
+    src/Protocol.h
+    src/Protocol.cpp
 )
 
 add_commonlibsse_plugin(${PROJECT_NAME}
@@ -54,6 +56,6 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 
 # Unit tests: pure logic only (no game headers, no PCH).
 enable_testing()
-add_executable(SleepTogetherTests tests/test_main.cpp src/Core.cpp)
+add_executable(SleepTogetherTests tests/test_main.cpp src/Core.cpp src/Protocol.cpp)
 target_include_directories(SleepTogetherTests PRIVATE src)
 add_test(NAME SleepTogetherTests COMMAND SleepTogetherTests)
