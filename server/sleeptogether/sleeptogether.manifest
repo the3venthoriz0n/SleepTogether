@@ -1,8 +1,0 @@
-[Resource]
-name = "Sleep Together"
-version = 0.1.0
-apiset = 1.0.0
-description = "Lets the party leader advance server time by sleeping"
-keywords = ["sleep", "time", "party"]
-license = "GPL-3.0"
-entrypoint = "main.lua"
