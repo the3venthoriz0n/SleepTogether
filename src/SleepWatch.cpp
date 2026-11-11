@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include <thread>
 
 namespace SleepTogether::SleepWatch
@@ -36,9 +37,24 @@ namespace SleepTogether::SleepWatch
                 Config::ReloadIfChanged();
             }
 
+            static int          lastState    = -1;
+            static int          lastMenuOpen = -1;
+            static std::int64_t lastChangeMs = 0;
+
             bool sleeping = false;
             if (auto* player = RE::PlayerCharacter::GetSingleton()) {
-                switch (player->GetSitSleepState()) {
+                const auto state = player->GetSitSleepState();
+                auto* ui         = RE::UI::GetSingleton();
+                const int   menuOpen = (ui && ui->IsMenuOpen(RE::SleepWaitMenu::MENU_NAME)) ? 1 : 0;
+                if (static_cast<int>(state) != lastState || menuOpen != lastMenuOpen) {
+                    const auto now = NowMs();
+                    spdlog::info("Sleep state: sitSleepState={} sleepMenuOpen={} (+{} ms since last change)",
+                        static_cast<int>(state), menuOpen, lastState < 0 ? 0 : now - lastChangeMs);
+                    lastState    = static_cast<int>(state);
+                    lastMenuOpen = menuOpen;
+                    lastChangeMs = now;
+                }
+                switch (state) {
                 case RE::SIT_SLEEP_STATE::kWantToSleep:
                 case RE::SIT_SLEEP_STATE::kWaitingForSleepAnim:
                 case RE::SIT_SLEEP_STATE::kIsSleeping:
@@ -90,13 +106,19 @@ namespace SleepTogether::SleepWatch
     {
         const auto settings = Config::Get();
         if (!settings.enabled) {
-            spdlog::debug("Sleep started but Sleep Together is disabled");
+            spdlog::info("Sleep started but Sleep Together is disabled");
             return;
         }
 
         static Core::Throttle throttle(3000);
-        if (!throttle.Allow(NowMs())) {
-            spdlog::debug("Sleep request throttled");
+        static std::mutex     throttleMutex;
+        bool                  allowed;
+        {
+            std::lock_guard lock(throttleMutex);
+            allowed = throttle.Allow(NowMs());
+        }
+        if (!allowed) {
+            spdlog::info("Sleep request throttled");
             return;
         }
 
