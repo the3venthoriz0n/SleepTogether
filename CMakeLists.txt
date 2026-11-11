@@ -21,6 +21,8 @@ set(PROJECT_SOURCES
     src/main.cpp
     src/Config.h
     src/Config.cpp
+    src/Core.h
+    src/Core.cpp
 )
 
 add_commonlibsse_plugin(${PROJECT_NAME}
@@ -49,3 +51,9 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             "${PACKAGE_PLUGIN_DIR}/$<TARGET_FILE_NAME:${PROJECT_NAME}>"
     COMMENT "Copying SleepTogether.dll to package/Data/SKSE/Plugins"
 )
+
+# Unit tests: pure logic only (no game headers, no PCH).
+enable_testing()
+add_executable(SleepTogetherTests tests/test_main.cpp src/Core.cpp)
+target_include_directories(SleepTogetherTests PRIVATE src)
+add_test(NAME SleepTogetherTests COMMAND SleepTogetherTests)
