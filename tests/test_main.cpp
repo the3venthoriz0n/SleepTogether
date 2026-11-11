@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 using namespace SleepTogether;
 
@@ -68,6 +70,22 @@ int main()
         CHECK(t.Allow(13001) == false);
         Core::Throttle fresh(3000);
         CHECK(fresh.Allow(0) == true);
+    }
+    {
+        using Members = std::vector<std::pair<std::string, std::string>>;
+        CHECK(Core::FormatProbeSnapshot(1.5f, true, false, 22.25f, {}) ==
+              "Sleep menu probe: timer=1.50 isSleeping=1 isActive=0 gameHour=22.25 members={}");
+        CHECK(Core::FormatProbeSnapshot(0.f, false, true, 8.f, Members{ { "a", "1" }, { "b", "x" } }) ==
+              "Sleep menu probe: timer=0.00 isSleeping=0 isActive=1 gameHour=8.00 members={a=1, b=x}");
+        Members many;
+        for (int i = 0; i < 61; ++i) {
+            many.emplace_back("m" + std::to_string(i), "v");
+        }
+        const auto s = Core::FormatProbeSnapshot(0.f, false, false, 0.f, many);
+        CHECK(s.find("m59=v, ...+1 more}") != std::string::npos);
+        CHECK(s.find("m60") == std::string::npos);
+        Members longMembers{ { "k", std::string(5000, 'z') } };
+        CHECK(Core::FormatProbeSnapshot(0.f, false, false, 0.f, longMembers).size() == 2000);
     }
     std::puts("All tests passed");
     return 0;

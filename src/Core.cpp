@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <string>
 
 namespace SleepTogether::Core
 {
@@ -34,5 +35,36 @@ namespace SleepTogether::Core
     std::string DenyMessage()
     {
         return "[Sleep Together] Only the party leader can advance time.";
+    }
+
+    std::string FormatProbeSnapshot(float timer, bool isSleeping, bool isActive, float gameHour,
+        const std::vector<std::pair<std::string, std::string>>& members)
+    {
+        constexpr std::size_t kMaxMembers = 60;
+        constexpr std::size_t kMaxLength  = 2000;
+
+        char head[160];
+        std::snprintf(head, sizeof(head), "Sleep menu probe: timer=%.2f isSleeping=%d isActive=%d gameHour=%.2f members={",
+            static_cast<double>(timer), isSleeping ? 1 : 0, isActive ? 1 : 0, static_cast<double>(gameHour));
+        std::string out = head;
+
+        const std::size_t shown = std::min(members.size(), kMaxMembers);
+        for (std::size_t i = 0; i < shown; ++i) {
+            if (i > 0) {
+                out += ", ";
+            }
+            out += members[i].first;
+            out += '=';
+            out += members[i].second;
+        }
+        if (members.size() > shown) {
+            out += ", ...+" + std::to_string(members.size() - shown) + " more";
+        }
+        out += '}';
+
+        if (out.size() > kMaxLength) {
+            out.resize(kMaxLength);
+        }
+        return out;
     }
 }

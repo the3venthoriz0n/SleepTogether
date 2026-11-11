@@ -8,8 +8,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <mutex>
+#include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 namespace SleepTogether::SleepWatch
 {
@@ -24,6 +28,65 @@ namespace SleepTogether::SleepWatch
         {
             using namespace std::chrono;
             return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+        }
+
+        // Read-only diagnostic, game thread only: logs what the open Sleep/Wait menu exposes (one line per change).
+        void ProbeSleepMenu(RE::UI* ui, bool menuOpen)
+        {
+            static std::string lastSnapshot;
+            static bool        wasOpen = false;
+
+            if (!menuOpen) {
+                if (wasOpen) {
+                    spdlog::info("Sleep menu probe: menu closed");
+                    wasOpen = false;
+                    lastSnapshot.clear();
+                }
+                return;
+            }
+            wasOpen = true;
+
+            auto menu = ui->GetMenu(RE::SleepWaitMenu::MENU_NAME);
+            if (!menu) {
+                return;
+            }
+            auto* sleepMenu = static_cast<RE::SleepWaitMenu*>(menu.get());
+            auto& data      = sleepMenu->GetRuntimeData();
+            auto* calendar  = RE::Calendar::GetSingleton();
+            const float gameHour = calendar ? calendar->GetHour() : -1.0f;
+
+            std::vector<std::pair<std::string, std::string>> members;
+            if (data.root.IsObject()) {
+                // Plain member enumeration; does not call any ActionScript function.
+                data.root.VisitMembers([&members](const char* name, const RE::GFxValue& value) {
+                    if (members.size() > 100 || !name) {
+                        return;
+                    }
+                    std::string text;
+                    if (value.IsNumber()) {
+                        char buf[48];
+                        std::snprintf(buf, sizeof(buf), "%g", value.GetNumber());
+                        text = buf;
+                    } else if (value.IsBool()) {
+                        text = value.GetBool() ? "true" : "false";
+                    } else if (value.IsString()) {
+                        const char* s = value.GetString();
+                        text          = s ? s : "";
+                    } else if (value.IsObject()) {
+                        text = "<object>";
+                    } else {
+                        text = "<other>";
+                    }
+                    members.emplace_back(name, std::move(text));
+                });
+            }
+
+            auto snapshot = Core::FormatProbeSnapshot(
+                data.timer, data.isSleeping, data.isActive, gameHour, members);
+            if (snapshot != lastSnapshot) {
+                spdlog::info("{}", snapshot);
+                lastSnapshot = std::move(snapshot);
+            }
         }
 
         // Runs on the game thread.
@@ -53,6 +116,9 @@ namespace SleepTogether::SleepWatch
                     lastState    = static_cast<int>(state);
                     lastMenuOpen = menuOpen;
                     lastChangeMs = now;
+                }
+                if (ui) {
+                    ProbeSleepMenu(ui, menuOpen != 0);
                 }
                 switch (state) {
                 case RE::SIT_SLEEP_STATE::kWantToSleep:

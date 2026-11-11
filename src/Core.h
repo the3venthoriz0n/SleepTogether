@@ -4,6 +4,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace SleepTogether::Core
 {
@@ -17,6 +19,12 @@ namespace SleepTogether::Core
     std::string AdvanceMessage(std::string_view leaderName, int hour);
 
     std::string DenyMessage();
+
+    // One diagnostic line describing the Sleep/Wait menu: "Sleep menu probe: timer=<f> isSleeping=<0|1>
+    // isActive=<0|1> gameHour=<f> members={name=value, ...}". At most 60 members are listed (then
+    // ", ...+<n> more"); the whole line is truncated to 2000 characters.
+    std::string FormatProbeSnapshot(float timer, bool isSleeping, bool isActive, float gameHour,
+        const std::vector<std::pair<std::string, std::string>>& members);
 
     // Reports each false-to-true transition of a flag exactly once.
     class SleepEdge
