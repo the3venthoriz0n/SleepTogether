@@ -87,6 +87,12 @@ int main()
         Members longMembers{ { "k", std::string(5000, 'z') } };
         CHECK(Core::FormatProbeSnapshot(0.f, false, false, 0.f, longMembers).size() == 2000);
     }
+    CHECK(Core::ShouldLogProbe(false, false, false, 5000, 1000) == false);
+    CHECK(Core::ShouldLogProbe(false, true, false, 999, 1000) == false);
+    CHECK(Core::ShouldLogProbe(false, true, false, 1000, 1000) == true);
+    CHECK(Core::ShouldLogProbe(true, true, false, 0, 1000) == true);
+    CHECK(Core::ShouldLogProbe(false, false, true, 0, 1000) == true);
+    CHECK(Core::ShouldLogProbe(true, false, false, 0, 1000) == true);
     std::puts("All tests passed");
     return 0;
 }

@@ -20,6 +20,14 @@ namespace SleepTogether::Core
 
     std::string DenyMessage();
 
+    // Whether the Sleep/Wait menu probe should log now: always on the first line after the menu opens or when
+    // the key content changed; for timer/hour-only changes at most once per minMsForTimerOnly.
+    inline bool ShouldLogProbe(bool keyChanged, bool snapshotChanged, bool firstAfterOpen,
+        std::int64_t msSinceLastLine, std::int64_t minMsForTimerOnly) noexcept
+    {
+        return firstAfterOpen || keyChanged || (snapshotChanged && msSinceLastLine >= minMsForTimerOnly);
+    }
+
     // One diagnostic line describing the Sleep/Wait menu: "Sleep menu probe: timer=<f> isSleeping=<0|1>
     // isActive=<0|1> gameHour=<f> members={name=value, ...}". At most 60 members are listed (then
     // ", ...+<n> more"); the whole line is truncated to 2000 characters.

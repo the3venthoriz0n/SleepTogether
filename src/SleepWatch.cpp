@@ -34,13 +34,18 @@ namespace SleepTogether::SleepWatch
         void ProbeSleepMenu(RE::UI* ui, bool menuOpen)
         {
             static std::string lastSnapshot;
-            static bool        wasOpen = false;
+            static std::string lastKey;
+            static std::int64_t lastLineMs     = 0;
+            static bool         firstAfterOpen = true;
+            static bool         wasOpen        = false;
 
             if (!menuOpen) {
                 if (wasOpen) {
                     spdlog::info("Sleep menu probe: menu closed");
                     wasOpen = false;
                     lastSnapshot.clear();
+                    lastKey.clear();
+                    firstAfterOpen = true;
                 }
                 return;
             }
@@ -83,9 +88,17 @@ namespace SleepTogether::SleepWatch
 
             auto snapshot = Core::FormatProbeSnapshot(
                 data.timer, data.isSleeping, data.isActive, gameHour, members);
-            if (snapshot != lastSnapshot) {
+            // The key ignores timer and game hour, which can change on every poll.
+            auto key = Core::FormatProbeSnapshot(0.0f, data.isSleeping, data.isActive, 0.0f, members);
+
+            const auto now = NowMs();
+            if (Core::ShouldLogProbe(key != lastKey, snapshot != lastSnapshot, firstAfterOpen,
+                    now - lastLineMs, 1000)) {
                 spdlog::info("{}", snapshot);
-                lastSnapshot = std::move(snapshot);
+                lastSnapshot   = std::move(snapshot);
+                lastKey        = std::move(key);
+                lastLineMs     = now;
+                firstAfterOpen = false;
             }
         }
 
