@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "Config.h"
+#include "StrLink.h"
 
 namespace
 {
@@ -25,6 +26,11 @@ namespace
     {
         if (a_message && a_message->type == SKSE::MessagingInterface::kDataLoaded) {
             spdlog::info("Data loaded");
+            if (SleepTogether::StrLink::Start()) {
+                spdlog::info("STRPM link ready");
+            } else {
+                spdlog::error("STRPM link unavailable: install STRPluginMessagingAPI and Bridge");
+            }
         }
     }
 }
@@ -37,7 +43,9 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 
     SleepTogether::Config::Load();
     if (SleepTogether::Config::Get().debug) {
+        // The logger itself was created at info level; raise its verbosity as well as the global one.
         spdlog::set_level(spdlog::level::debug);
+        spdlog::default_logger()->set_level(spdlog::level::debug);
     }
 
     auto* messaging = SKSE::GetMessagingInterface();

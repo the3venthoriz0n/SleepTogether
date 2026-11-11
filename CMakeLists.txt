@@ -25,6 +25,10 @@ set(PROJECT_SOURCES
     src/Core.cpp
     src/Protocol.h
     src/Protocol.cpp
+    src/StrLink.h
+    src/StrLink.cpp
+    src/STRPluginMessagingAPI/STRPluginMessagingAPI.h
+    src/STRPluginMessagingAPI.cpp
 )
 
 add_commonlibsse_plugin(${PROJECT_NAME}
