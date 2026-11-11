@@ -30,8 +30,13 @@ return function(logic, gameServer, playerManager)
     -- GameServer:GetTick() is milliseconds (PartyService uses GetTick() + 10000
     -- as 10 seconds and + 60000 as 60 seconds).
     local now = gameServer:GetTick()
+    -- Count with ipairs exactly like the relay does; `#` on the sol2 container is unproven.
+    local playerCount = 0
+    for _ in ipairs(playerManager:GetAllPlayers()) do
+      playerCount = playerCount + 1
+    end
     local decision = logic.decide(
-      player:IsPartyLeader(), #playerManager:GetAllPlayers(), hour, now, lastAdvanceMs)
+      player:IsPartyLeader(), playerCount, hour, now, lastAdvanceMs)
 
     print("[SleepTogether] " .. name .. " -> " .. decision.kind ..
       (decision.reason and (" (" .. decision.reason .. ")") or ""))
