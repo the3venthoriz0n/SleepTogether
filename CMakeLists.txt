@@ -25,6 +25,8 @@ set(PROJECT_SOURCES
     src/Core.cpp
     src/Protocol.h
     src/Protocol.cpp
+    src/SleepWatch.h
+    src/SleepWatch.cpp
     src/StrLink.h
     src/StrLink.cpp
     src/STRPluginMessagingAPI/STRPluginMessagingAPI.h

@@ -50,6 +50,25 @@ int main()
     CHECK(!Protocol::ParseSleepRequest("STv1|SLEEP|" + std::string(21, '0') + "8"));
     CHECK(Protocol::ParseSleepRequest("STv1|SLEEP|" + std::string(20, '0') + "8") == 8);
     CHECK(!Protocol::ParseSleepRequest("STv1|SLEEP|" + std::string(22, '0')));
+    {
+        Core::SleepEdge edge;
+        CHECK(edge.Update(false) == false);
+        CHECK(edge.Update(true) == true);
+        CHECK(edge.Update(true) == false);
+        CHECK(edge.Update(true) == false);
+        CHECK(edge.Update(false) == false);
+        CHECK(edge.Update(true) == true);
+    }
+    {
+        Core::Throttle t(3000);
+        CHECK(t.Allow(10000) == true);
+        CHECK(t.Allow(10001) == false);
+        CHECK(t.Allow(12999) == false);
+        CHECK(t.Allow(13000) == true);
+        CHECK(t.Allow(13001) == false);
+        Core::Throttle fresh(3000);
+        CHECK(fresh.Allow(0) == true);
+    }
     std::puts("All tests passed");
     return 0;
 }

@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "Config.h"
+#include "SleepWatch.h"
 #include "StrLink.h"
 
 namespace
@@ -31,6 +32,7 @@ namespace
             } else {
                 spdlog::error("STRPM link unavailable: install STRPluginMessagingAPI and Bridge");
             }
+            SleepTogether::SleepWatch::Install();
         }
     }
 }
