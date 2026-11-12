@@ -26,9 +26,9 @@ Verified on 2026-11-11: the three patches were applied in order with `git am` to
 checkout of `player-inventory-transfers` and gave the same diff stat as the fork branch.
 This was a local `git am` check only: the server was NOT built and was not run.
 
-The patch files contain CRLF line endings inside their diff lines (the server sources use
-CRLF). `.gitattributes` in this repository marks `*.patch` as `-text` so Git keeps them
-byte for byte. Do not convert them, or `git am` will fail.
+The patch files use LF line endings (the server sources are LF in the git index).
+`.gitattributes` in this repository marks `server/patches/*.patch` as `-text`, so Windows
+`autocrlf` cannot rewrite them (which would break `git am`). Do not convert them.
 
 ## Building the server image
 

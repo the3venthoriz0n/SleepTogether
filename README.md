@@ -43,6 +43,8 @@ sleep awkward.
 - If the leader **cancels in the middle of the sleep**, nothing stops the advance: it always runs to the end.
   Early wake-up is not handled.
 - There is **no voting**: the party leader decides for everyone.
+- If the server fails midway through a session, no end message (DONE) is sent: the player's days-passed counter
+  matches the partial advance and only the stat restore is skipped. There is no client timeout.
 
 ## Requirements
 
@@ -87,7 +89,7 @@ In `STServer.ini`, under `[Gameplay]`, set:
 
     bSyncPlayerCalendar=true
 
-so that clients' dates follow the server's. (The owner has already turned this on.)
+so that clients' dates follow the server's.
 
 ### c) Replace the relay
 
@@ -123,15 +125,17 @@ switch is only applied when the game loads.
 
 Plugin log (`SleepTogether.log`), in this order for one sleep:
 
-- `Local sleep started (initial slider ..., at press ...), requested HOURS 8` or `... requested UNTIL 8`: the
-  plugin saw Sleep pressed. "initial slider" is the slider when the menu opened, "at press" is when Sleep was
-  pressed (`unreadable` if it could not be read).
+- `Local sleep started (initial slider ..., last before press ...), requested HOURS 8` or `... requested UNTIL 8`:
+  the plugin saw Sleep pressed. "initial slider" is the slider when the menu opened, "last before press" is the
+  last reading before the sleep began (the slider counts down once sleeping starts); either is `unreadable` if it
+  could not be read.
 - `Sleep request sent STv2|HOURS|8` (or `STv2|UNTIL|8`): the request went to the STRPM bridge.
 - `Sleep step +1000 milli-hours (days passed now ...)`: one per game hour, as the server steps.
-- `Sleep done 8000 milli-hours, restored health +..., magicka +..., stamina +...` (or `restored nothing (all stats
-  already full)`, or `stat restore disabled`).
+- `Sleep done (8000 milli-hours), restored health +..., magicka +..., stamina +...` (or `restored nothing (all
+  stats already full)`, or `stat restore disabled`).
 - Other lines you may see: `Sleep request throttled`, `Sleep started but Sleep Together is disabled`,
-  `Sleep step ignored: calendar or days-passed global not available`.
+  `Sleep step ignored: calendar or days-passed global not available`, and (warning) `Sleep done (8000
+  milli-hours), player not available, nothing restored`.
 - `Sleep menu probe:` and `Sleep state:` lines are a leftover diagnostic and can be ignored.
 
 Server log:
@@ -157,6 +161,19 @@ Server log:
 - **No "Sleep Together" entry in the MCM:** enable `SleepTogether.esp`, make sure MCM Helper is installed, and
   load a save. Then check `Documents\My Games\Skyrim Special Edition\SKSE\MCMHelper.log`: it should list the
   mod, and a line saying the config failed to parse means the config was rejected.
+
+## Things that may surprise you
+
+- With the wake-up default on, leaving the slider untouched at exactly the wake-up hour sleeps a full 24 hours.
+- With the default on, the slider's own starting value cannot be requested (for example a 1-hour nap), because
+  it looks like "untouched". Turn the default off to always use the slider.
+- `Restore health, magicka and stamina` applies to each player's own character, on their own PC.
+- Turning the mod off (`bEnabled`) only stops YOUR plugin from sending requests. You still receive and apply
+  other players' steps and the end of their sleep (days passed, stat restore).
+- The stepped clock keeps ticking normally while the session runs, so "until 08:00" wakes up a few game minutes
+  after the hour (about 18 seconds at the default time scale of 20, which is about 6 game minutes).
+- A sleep of less than an hour is announced as `slept for 1 hour`.
+- The server answers every non-leader attempt with a chat message (there is no throttling of that reply).
 
 ## Known unknowns (test these first)
 
