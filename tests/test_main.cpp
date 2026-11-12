@@ -166,8 +166,8 @@ int main()
     CHECK(!Core::WasCancelled(std::nullopt));
     CHECK(!Core::WasCancelled(std::nanf("")));
     CHECK(!Core::WasCancelled(0.0f));
-    CHECK(!Core::WasCancelled(0.49f));
-    CHECK(Core::WasCancelled(0.5f));
+    CHECK(!Core::WasCancelled(1.49f));
+    CHECK(Core::WasCancelled(1.5f));
     CHECK(Core::WasCancelled(7.3f));
     CHECK(!Core::WasCancelled(INFINITY));
     CHECK(Core::WaitMessage("Alice", 3.0f) == "[Sleep Together] Alice waited for 3 hours.");

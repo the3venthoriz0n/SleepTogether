@@ -67,10 +67,10 @@ namespace SleepTogether::Core
     int HoursUntilWake(float currentHour, int wakeHour);
 
     // The player left the menu while a sleep or wait was still counting down: the last slider reading taken while
-    // active is present, finite and at least 0.5 (a natural finish leaves it near zero).
+    // active is present, finite and at least 1.5 hours (a natural finish leaves about 1 or less, and a cancel that late costs the server under 2 s).
     inline bool WasCancelled(std::optional<float> lastActiveSlider) noexcept
     {
-        return lastActiveSlider.has_value() && std::isfinite(*lastActiveSlider) && *lastActiveSlider >= 0.5f;
+        return lastActiveSlider.has_value() && std::isfinite(*lastActiveSlider) && *lastActiveSlider >= 1.5f;
     }
 
     // Hours to ask the server to wait: the slider reading rounded half up, clamped to [1, 24]; nothing when the
