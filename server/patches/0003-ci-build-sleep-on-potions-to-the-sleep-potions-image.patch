@@ -1,0 +1,50 @@
+From ec41d54824b8914e337e8031266e8074035bc380 Mon Sep 17 00:00:00 2001
+From: the3venthoriz0n <11714005+the3venthoriz0n@users.noreply.github.com>
+Date: Thu, 12 Nov 2026 10:13:24 -0800
+Subject: [PATCH 3/3] ci: build sleep-on-potions to the :sleep-potions image
+ tag
+
+The potion-sync client reports version v1.8.4-potions1 and the server refuses
+clients whose version string differs, so the Sleep Together server patch must
+be built on potion-sync with the same VERSION_OVERRIDE. Publish to its own tag
+so :potions, :patched and :sleep are never overwritten.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ .github/workflows/docker-patched-server.yml | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/.github/workflows/docker-patched-server.yml b/.github/workflows/docker-patched-server.yml
+index 0725fcfe..c902f337 100644
+--- a/.github/workflows/docker-patched-server.yml
++++ b/.github/workflows/docker-patched-server.yml
+@@ -1,12 +1,15 @@
+ name: Build patched server image
+ 
+-# Builds the server image from this branch and publishes it to GitHub Container Registry
+-# (ghcr.io/<owner>/st-reborn-server:potions). amd64 only.
++# Builds branch sleep-on-potions (potion-sync plus the Sleep Together server patch) and publishes it to
++# GitHub Container Registry
++# (ghcr.io/<owner>/st-reborn-server:sleep-potions). amd64 only. Never writes the :potions, :patched or
++# :sleep tags. VERSION_OVERRIDE stays v1.8.4-potions1: the potion client reports that exact version and
++# the server refuses clients whose version string differs.
+ on:
+   workflow_dispatch:
+   push:
+     branches:
+-      - potion-sync
++      - sleep-on-potions
+ 
+ permissions:
+   contents: read
+@@ -48,6 +51,6 @@ jobs:
+             GITHUB_ACTIONS=true
+             VERSION_OVERRIDE=v1.8.4-potions1
+           push: true
+-          tags: ${{ env.IMAGE }}:potions
++          tags: ${{ env.IMAGE }}:sleep-potions
+           cache-from: type=gha
+           cache-to: type=gha,mode=max
+-- 
+2.51.2.windows.1
+

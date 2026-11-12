@@ -72,16 +72,21 @@ sleep awkward.
 
 **Two things are required, and both must be done: the patched server image AND the new relay.**
 
-### a) Run the patched server image (`:sleep`)
+### a) Run the patched server image (`:sleep-potions`)
 
-The server must run the patched image. Pushing the branch `sleep-time-advance` in the fork
-`the3venthoriz0n/TiltedEvolution` builds `ghcr.io/<owner>/st-reborn-server:sleep` with GitHub Actions (about 40+
-minutes, amd64 only). The branch is `player-inventory-transfers` plus three commits; the same changes are in
-`server/patches` as three patch files (see `server/patches/README.md`). Point the server at the `:sleep` image
-and restart.
+The server must run the patched image, built from the **potion-sync** branch so that its version string
+(`v1.8.4-potions1`) matches the potion-sync client your players use (the server refuses clients with a different
+version). Pushing the branch `sleep-on-potions` in the fork `the3venthoriz0n/TiltedEvolution` builds
+`ghcr.io/<owner>/st-reborn-server:sleep-potions` with GitHub Actions (amd64 only; a build of the same code on a
+different base took about 15 minutes). The branch is `potion-sync` plus three commits; the same changes are in
+`server/patches` as three patch files (see `server/patches/README.md`). Point the server at the `:sleep-potions`
+image and restart.
 
-**Rollback:** point the server back at `ghcr.io/<owner>/st-reborn-server:patched` and restart. The workflow never
-writes the `:patched` tag.
+**Rollback:** point the server back at `ghcr.io/<owner>/st-reborn-server:potions` and restart. The workflow never
+writes the `:potions`, `:patched` or `:sleep` tags.
+
+(An earlier branch, `sleep-time-advance`, builds the same code to `:sleep` with version `v1.8.4`. It only works
+with stock `v1.8.4` clients and is refused by the potion-sync client.)
 
 ### b) Calendar sync setting
 
@@ -158,8 +163,11 @@ Server log:
     STR server).
   - In the server log, look for `[SleepTogether]` lines. If there are none, the relay was not replaced (or the
     server was not restarted).
-  - Check that the server really runs the `:sleep` image. With the stock image, advancing fails with an
+  - Check that the server really runs the `:sleep-potions` image. With a stock image, advancing fails with an
     `[SleepTogether] Error: ...` line.
+- **"Wrong version" when connecting:** the server and the clients must report the same version string. The
+  potion-sync client reports `v1.8.4-potions1`, so the server must be the `:sleep-potions` image (built from
+  potion-sync); a `:sleep` or `:patched` image reports `v1.8.4` and refuses the potion-sync client.
 - **Time does not advance, or the date does not follow:** check the server settings, in particular
   `bSyncPlayerCalendar=true` under `[Gameplay]` and the time scale.
 - **No "Sleep Together" entry in the MCM:** enable `SleepTogether.esp`, make sure MCM Helper is installed, and

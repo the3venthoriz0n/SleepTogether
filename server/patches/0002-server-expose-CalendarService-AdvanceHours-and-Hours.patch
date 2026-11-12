@@ -1,4 +1,4 @@
-From 1ab1f342b8514ef541b1ee5596ef3e1ffbfa91d6 Mon Sep 17 00:00:00 2001
+From 062002942b8de9db26a7eb1929f007dfa953fd76 Mon Sep 17 00:00:00 2001
 From: the3venthoriz0n <11714005+the3venthoriz0n@users.noreply.github.com>
 Date: Wed, 11 Nov 2026 16:33:48 -0800
 Subject: [PATCH 2/3] server: expose CalendarService AdvanceHours and
