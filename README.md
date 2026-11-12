@@ -2,8 +2,8 @@
 
 Shared sleeping for Skyrim Together Reborn (STR) parties, for Skyrim Special Edition / Anniversary Edition.
 
-Status: **0.1.0 first test build.** It compiles and its logic tests pass; it has not been played yet.
-See "Known unknowns".
+Status: **0.1.1 test build.** It compiles and its logic tests pass. The 0.1.0 build was tried in game once and its
+trigger never fired (see below); this build has not been tried in game. See "Known unknowns".
 
 ## What it does
 
@@ -18,7 +18,16 @@ group. That also makes Survival Mode's need for sleep awkward. Sleep Together fi
 - The server accepts at most one advance every 5 seconds.
 - The wake-up time is a **fixed hour set in the MCM** (default 08:00) in this first release. The hour you
   pick in the sleep menu is not used yet. The plugin writes `Sleep menu probe:` lines to its log so that
-  the place to read it from can be found for a later version.
+  the place to read it from can be found for a later version. Since 0.1.1 those lines also list the members
+  of `HoursSlider`, `HoursText` and `CurrentTime` (as `HoursSlider.<name>=<value>`), which is where the chosen
+  hour is expected to be; that is not confirmed.
+- **Trigger:** a sleep request is sent when the player presses Sleep in the Sleep/Wait menu: the menu is open
+  with its `isSleeping` flag set (opened from a bed; a Wait menu has it clear) and its `isActive` flag set (the
+  Sleep button was pressed). Opening the menu and cancelling does not trigger. The player's sit/sleep state is
+  not used: in the first in-game test it read a constant 10 (not a valid state) at all times, so it cannot be
+  used. The menu flags were observed in that test (menu opens with isSleeping=1 isActive=0, about 3 seconds
+  later isActive=1, about 1 second after that the menu closes); the new trigger itself has not been tried in
+  game. The plugin checks about every 100 ms.
 
 ## Requirements
 
@@ -31,7 +40,7 @@ group. That also makes Survival Mode's need for sleep awkward. Sleep Together fi
 
 ## Install, players
 
-1. Install `SleepTogether-0.1.0.zip` with Vortex (or copy its `Data` folder into your Skyrim `Data` folder).
+1. Install `SleepTogether-0.1.1.zip` with Vortex (or copy its `Data` folder into your Skyrim `Data` folder).
 2. Enable `SleepTogether.esp` in your plugin list. It is a small plugin with one quest, no gameplay: MCM Helper
    only lists a mod whose plugin is loaded.
 3. Settings are in the SkyUI Mod Configuration Menu under "Sleep Together": on/off, wake hour (0 to 23,
@@ -39,7 +48,7 @@ group. That also makes Survival Mode's need for sleep awkward. Sleep Together fi
 
 ## Install, server admin
 
-`SleepTogether-Server-0.1.0.zip` contains a folder `strpm-chat-relay` with `main.lua` and
+`SleepTogether-Server-0.1.1.zip` contains a folder `strpm-chat-relay` with `main.lua` and
 `strpm-chat-relay.manifest`.
 
 1. Make a backup copy of your server's `Resources/strpm-chat-relay` folder.
@@ -81,11 +90,12 @@ Until then this is a test build, and sleeping after midnight with a wake hour la
   stranger's one-person party, can change the time for the whole server. "Only the party leader" does not mean
   "only your friends' party leader". The "only when alone" rule stops a player with no party, but not a
   party-of-one leader. This only matters on a server with other people on it; it is meant for a private server.
-- This has not been played yet. Everything here is from reading the code.
+- Only the first in-game test of 0.1.0 has happened (plugin loads, STRPM link works, trigger did not fire). The
+  new trigger and the server side have not been played.
 - Sleeping in the same bed as another player is untested.
 - Whether the time jump looks abrupt in game.
-- Whether cancelling a bed activation can still trigger a request. The `Sleep state:` lines in the log show
-  the sequence of sleep states.
+- Whether cancelling the sleep menu can still trigger a request (it should not: it needs isActive). The
+  `Sleep state:` lines show the menu opening and closing; `sitSleepState(raw)` in them is diagnostic only.
 - The server reads the time scale from `CalendarService`; if that is unavailable it falls back to 20.
 - The server's `IsPartyLeader` behaviour was checked in the STR source only.
 - The server code has only been tested with stand-in objects, not on a real STR server.
@@ -93,8 +103,10 @@ Until then this is a test build, and sleeping after midnight with a wake hour la
 ## Troubleshooting
 
 - **Nothing happens when you sleep:**
-  - In `SleepTogether.log`, look for `Local sleep started` and `Sleep request sent`. If they are missing,
-    check the mod is enabled in the MCM and that the STRPM Bridge is installed.
+  - In `SleepTogether.log`, look for `Local sleep started (Sleep pressed in the sleep menu), requested wake
+    hour N` (the plugin saw Sleep pressed) and `Sleep request sent hour=N` (the request went to the STRPM
+    bridge). If the first is missing, send the `Sleep menu probe:` lines. If only the second is missing, check
+    the mod is enabled in the MCM and that the STRPM Bridge is installed and connected.
   - In the server log, look for `[SleepTogether]` lines. If there are none, the relay was not replaced
     (or the server was not restarted).
 - **No "Sleep Together" entry in the MCM:** enable `SleepTogether.esp`, make sure MCM Helper is installed, and
@@ -111,8 +123,8 @@ Until then this is a test build, and sleeping after midnight with a wake hour la
 | Two players in the same double bed | |
 | A player disconnects during sleep | |
 | Leader sleeps twice within 5 seconds: second request is refused | |
-| Activate a bed, then cancel the sleep menu without sleeping: does a request go out, does time change? (see the `Sleep state:` lines and the server `[SleepTogether]` lines) | |
-| Open the Sleep/Wait menu, move the hours slider, then press Sleep: send the `Sleep menu probe:` lines (needed before the chosen hour can be used) | |
+| Activate a bed, then cancel the sleep menu without sleeping: does a request go out, does time change? (see the `Sleep state:` and `Sleep menu probe:` lines and the server `[SleepTogether]` lines) | |
+| Open the Sleep/Wait menu, move the hours slider, then press Sleep: send the `Sleep menu probe:` lines (they now include `HoursSlider.*`, `HoursText.*` and `CurrentTime.*` members; needed before the chosen hour can be used) | |
 | Sleep in the evening (for example 22:00): after the clock change, check the in-game date, whether days passed changed, and whether Survival fatigue recovered | |
 | After the first successful advance: is the server's time scale still what it was configured to? (the handler falls back to 20 if it cannot read it) | |
 | If the server log never shows a `[SleepTogether]` line: in the STRPM plugin log, is the backend the STR bridge? (a UDP backend would not reach the STR server) | |
@@ -131,8 +143,8 @@ interpreter for the server tests.
 - Tests: `lua tests/test_logic.lua`, `lua tests/test_handler.lua`, and the C++ tests with
   `cmake --build out\build-release --config Release --target SleepTogetherTests` then
   `ctest --test-dir out\build-release -C Release --output-on-failure`.
-- Zips: `make_archive.bat` writes `dist\SleepTogether-0.1.0.zip` (the `Data` folder) and
-  `dist\SleepTogether-Server-0.1.0.zip` (the `strpm-chat-relay` folder). It refuses to run if the DLL lacks the 0.1.0
+- Zips: `make_archive.bat` writes `dist\SleepTogether-0.1.1.zip` (the `Data` folder) and
+  `dist\SleepTogether-Server-0.1.1.zip` (the `strpm-chat-relay` folder). It refuses to run if the DLL lacks the 0.1.1
   version marker, or if the server relay file lacks the Sleep Together handler.
 
 ## License
