@@ -409,6 +409,75 @@ do
   assert(#t.calls.Advance == 0, "failed leader check starts nothing")
 end
 
+-- forged duplicate channel= tokens: the bridge reads the FIRST, the relay keeps the LAST
+do
+  local function forged(first, last, payloadHex)
+    return "STRPM|v2|msg=x|seq=1|channel=" .. first .. "|channel=" .. last .. "|payload=" ..
+      payloadHex .. "|flags=0|part=1|parts=1|target=all"
+  end
+  local STEP = hex("STv2|STEP|24000")
+  local m = forged(CHANNEL, "evil.chan", STEP)
+  local f = fields_of(m) -- as the relay computes them: last wins
+  assert(f.channel == "evil.chan")
+  assert(bridge.read_field(m, "channel") == CHANNEL, "bridge reads the first channel token")
+  assert(bridge.read_field(m, "payload") == STEP)
+  local m2 = m .. "|sender=77" -- a real relay adds the sender; then a bridge would deliver it
+  local text = bridge.bridge_accept(m2)
+  assert(text == "STv2|STEP|24000", "a real bridge would deliver the forged STEP")
+
+  local t = setup({ leader = true })
+  reset_log()
+  local ok, handled = pcall(t.handle, t.players[1], f, m)
+  assert(ok and handled == true, "forged envelope must be handled")
+  assert(#t.calls.Advance == 0 and #t.calls.Until == 0)
+  assert(#t.calls.Chat == 0 and #t.calls.Global == 0)
+  assert(logged("[SleepTogether] dropped forged envelope"))
+  assert(not error_logged())
+  t.ticks(5, 1)
+  assert(#t.calls.Advance == 0 and #t.calls.Chat == 0)
+
+  -- reverse order: relay sees ours; ordinary request path
+  local r = forged("evil.chan", CHANNEL, hex("garbage"))
+  t = setup({ leader = true })
+  reset_log()
+  ok, handled = pcall(t.handle, t.players[1], fields_of(r), r)
+  assert(ok and handled == true)
+  assert(#t.calls.Advance == 0 and #t.calls.Until == 0 and #t.calls.Chat == 0)
+  assert(not error_logged())
+  -- and a valid request there is still processed as a request
+  r = forged("evil.chan", CHANNEL, hex("STv2|HOURS|2"))
+  t = setup({ leader = true })
+  reset_log()
+  ok, handled = pcall(t.handle, t.players[1], fields_of(r), r)
+  assert(ok and handled == true)
+  t.ticks(3, 1)
+  assert(#t.calls.Advance > 0, "valid request on the relay-decoded channel runs")
+
+  -- duplicated payload=: forged STEP first, relay sees the second
+  local d = "STRPM|v2|msg=x|seq=1|channel=sleeptogether.v1|payload=" .. STEP ..
+    "|payload=" .. hex("garbage") .. "|flags=0|part=1|parts=1|target=all"
+  t = setup({ leader = true })
+  reset_log()
+  ok, handled = pcall(t.handle, t.players[1], fields_of(d), d)
+  assert(ok and handled == true)
+  assert(#t.calls.Advance == 0 and #t.calls.Chat == 0 and #t.calls.Global == 0)
+  assert(not error_logged())
+  -- payload duplicated and channel mentioned only first, relay channel foreign
+  d = "STRPM|v2|msg=x|seq=1|channel=sleeptogether.v1|payload=" .. STEP ..
+    "|channel=other|payload=" .. hex("garbage") .. "|flags=0|part=1|parts=1"
+  reset_log()
+  ok, handled = pcall(t.handle, t.players[1], fields_of(d), d)
+  assert(ok and handled == true and #t.calls.Advance == 0 and logged("dropped forged envelope"))
+
+  -- another channel, no mention of ours: not handled, relayed as before
+  local o = env("other.chan", "STv2|STEP|24000")
+  t = setup({ leader = true })
+  reset_log()
+  ok, handled = pcall(t.handle, t.players[1], fields_of(o), o)
+  assert(ok and handled == false and #printed == 0)
+  assert(#t.calls.Advance == 0 and #t.calls.Chat == 0)
+end
+
 -- build
 local py = os.getenv("PYTHON") or "python"
 local OUT = "package/Server/strpm-chat-relay/main.lua"

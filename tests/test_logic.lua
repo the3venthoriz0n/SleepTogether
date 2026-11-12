@@ -162,3 +162,25 @@ do
   local steps, fin = logic.session_tick(s, 1)
   same(steps); assert(fin == true)
 end
+
+-- mentions_channel
+do
+  local C = "sleeptogether.v1"
+  local m = logic.mentions_channel
+  assert(m("STRPM|v2|channel=sleeptogether.v1|x=1", C) == true)
+  assert(m("channel=sleeptogether.v1", C) == true)
+  assert(m("a=1|b=2|channel=sleeptogether.v1", C) == true)
+  assert(m("channel=evil|channel=sleeptogether.v1", C) == true)
+  assert(m("channel=sleeptogether.v1|channel=evil", C) == true)
+  assert(m("channel=sleeptogether.v1x|a=b", C) == false)
+  assert(m("xchannel=sleeptogether.v1", C) == false)
+  assert(m("channel=sleeptogether.v", C) == false)
+  assert(m("", C) == false)
+  assert(m(nil, C) == false and m(42, C) == false and m({}, C) == false)
+  assert(m("x", nil) == false)
+  assert(m(string.rep("a", 5000), C) == false)
+  assert(m(string.rep("a|", 5000), C) == false)
+  assert(m(string.rep("a", 5000) .. "|channel=sleeptogether.v1", C) == true)
+  assert(m("a\0b|channel=sleeptogether.v1\0|c", C) == false)
+  assert(m("a\0b|channel=sleeptogether.v1|c\0", C) == true)
+end

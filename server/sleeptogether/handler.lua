@@ -108,10 +108,18 @@ return function(logic, gameServer, playerManager, calendar)
   end
 
   local function handle(player, fields, message)
-    if type(fields) ~= "table" or fields["channel"] ~= CHANNEL then
+    -- Ours when ANY channel= token names us (the client bridge reads the first
+    -- token, the relay's parser keeps the last), or the relay decoded us.
+    local mentioned = logic.mentions_channel(message, CHANNEL)
+    local relayed = type(fields) == "table" and fields["channel"] == CHANNEL
+    if not mentioned and not relayed then
       return false
     end
     local ok, err = pcall(function()
+      if not relayed then
+        log("dropped forged envelope")
+        return
+      end
       local channel, payload = logic.decode_envelope(message)
       if channel ~= CHANNEL then
         log("ignored undecodable envelope on " .. CHANNEL)

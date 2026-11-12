@@ -76,6 +76,27 @@ local function split_fields(envelope)
   return fields
 end
 
+-- True when any |-separated token of the raw message is exactly
+-- "channel=<channel>". Order independent, so a duplicated channel= key cannot
+-- hide our channel from us (the client bridge reads the first, the relay the
+-- last). Never raises.
+function logic.mentions_channel(message, channel)
+  if type(message) ~= "string" or type(channel) ~= "string" then
+    return false
+  end
+  local wanted = "channel=" .. channel
+  local start = 1
+  local len = #message
+  while start <= len + 1 do
+    local stop = string.find(message, "|", start, true) or (len + 1)
+    if stop - start == #wanted and string.sub(message, start, stop - 1) == wanted then
+      return true
+    end
+    start = stop + 1
+  end
+  return false
+end
+
 -- Returns channel, decoded payload; or nil for anything malformed or multi-part.
 function logic.decode_envelope(message)
   if type(message) ~= "string" or #message > MAX_ENVELOPE_LENGTH then

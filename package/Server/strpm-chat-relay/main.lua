@@ -99,6 +99,27 @@ local function split_fields(envelope)
   return fields
 end
 
+-- True when any |-separated token of the raw message is exactly
+-- "channel=<channel>". Order independent, so a duplicated channel= key cannot
+-- hide our channel from us (the client bridge reads the first, the relay the
+-- last). Never raises.
+function logic.mentions_channel(message, channel)
+  if type(message) ~= "string" or type(channel) ~= "string" then
+    return false
+  end
+  local wanted = "channel=" .. channel
+  local start = 1
+  local len = #message
+  while start <= len + 1 do
+    local stop = string.find(message, "|", start, true) or (len + 1)
+    if stop - start == #wanted and string.sub(message, start, stop - 1) == wanted then
+      return true
+    end
+    start = stop + 1
+  end
+  return false
+end
+
 -- Returns channel, decoded payload; or nil for anything malformed or multi-part.
 function logic.decode_envelope(message)
   if type(message) ~= "string" or #message > MAX_ENVELOPE_LENGTH then
@@ -332,10 +353,18 @@ return function(logic, gameServer, playerManager, calendar)
   end
 
   local function handle(player, fields, message)
-    if type(fields) ~= "table" or fields["channel"] ~= CHANNEL then
+    -- Ours when ANY channel= token names us (the client bridge reads the first
+    -- token, the relay's parser keeps the last), or the relay decoded us.
+    local mentioned = logic.mentions_channel(message, CHANNEL)
+    local relayed = type(fields) == "table" and fields["channel"] == CHANNEL
+    if not mentioned and not relayed then
       return false
     end
     local ok, err = pcall(function()
+      if not relayed then
+        log("dropped forged envelope")
+        return
+      end
       local channel, payload = logic.decode_envelope(message)
       if channel ~= CHANNEL then
         log("ignored undecodable envelope on " .. CHANNEL)
