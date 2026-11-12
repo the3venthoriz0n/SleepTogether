@@ -29,6 +29,9 @@ local logic = {}
 
 local HOURS_PREFIX = "STv2|HOURS|"
 local UNTIL_PREFIX = "STv2|UNTIL|"
+local WAIT_PREFIX = "STv2|WAIT|"
+local WAKE_TEXT = "STv2|WAKE"
+local STOP_PREFIX = "STv2|STOP|"
 local STEP_PREFIX = "STv2|STEP|"
 local DONE_PREFIX = "STv2|DONE|"
 local MAX_REQUEST_LENGTH = 32
@@ -57,12 +60,20 @@ local function parse_number(digits, maxValue)
   return value
 end
 
--- Mirrors Protocol::ParseRequest. Returns "HOURS", 1..24 or "UNTIL", 0..23; else nil.
+-- Mirrors Protocol::ParseRequest. Returns "HOURS", 1..24; "UNTIL", 0..23; "WAIT", 1..24; or "WAKE", 0; else nil.
 function logic.parse_request(text)
   if type(text) ~= "string" or #text > MAX_REQUEST_LENGTH then
     return nil
   end
-  if string.sub(text, 1, #HOURS_PREFIX) == HOURS_PREFIX then
+  if text == WAKE_TEXT then
+    return "WAKE", 0
+  end
+  if string.sub(text, 1, #WAIT_PREFIX) == WAIT_PREFIX then
+    local n = parse_number(string.sub(text, #WAIT_PREFIX + 1), 24)
+    if n and n >= 1 then
+      return "WAIT", n
+    end
+  elseif string.sub(text, 1, #HOURS_PREFIX) == HOURS_PREFIX then
     local n = parse_number(string.sub(text, #HOURS_PREFIX + 1), 24)
     if n and n >= 1 then
       return "HOURS", n
@@ -86,6 +97,10 @@ end
 
 function logic.payload_done(milliHours)
   return DONE_PREFIX .. string.format("%d", round(milliHours))
+end
+
+function logic.payload_stop(milliHours)
+  return STOP_PREFIX .. string.format("%d", round(milliHours))
 end
 
 local function split_fields(envelope)
@@ -185,6 +200,21 @@ function logic.advance_message(name, hours)
     (n == 1 and " hour." or " hours.")
 end
 
+-- Mirrors Core::WaitMessage: whole hours, at least 1.
+function logic.wait_message(name, hours)
+  local n = 1
+  if type(hours) == "number" and hours == hours and hours ~= math.huge and hours ~= -math.huge then
+    n = math.max(1, round(math.min(math.max(hours, 0), MAX_MILLI_HOURS)))
+  end
+  return "[Sleep Together] " .. name .. " waited for " .. string.format("%d", n) ..
+    (n == 1 and " hour." or " hours.")
+end
+
+-- Mirrors Core::WakeMessage. Claims no hours: only that the player woke up.
+function logic.wake_message(name)
+  return "[Sleep Together] " .. name .. " woke up early."
+end
+
 function logic.deny_message()
   return "[Sleep Together] Only the party leader can advance time."
 end
@@ -237,6 +267,18 @@ function logic.session_tick(session, deltaSeconds)
     return steps, true
   end
   return steps, false
+end
+
+-- Milli-hours advanced so far by a handler session { state, total, ... } (integers). 0 for anything malformed.
+function logic.session_elapsed(session)
+  if type(session) ~= "table" or type(session.state) ~= "table" then
+    return 0
+  end
+  local total, remaining = session.total, session.state.remaining
+  if math.type(total) ~= "integer" or math.type(remaining) ~= "integer" then
+    return 0
+  end
+  return math.max(0, math.min(total - remaining, MAX_MILLI_HOURS))
 end
 
 return logic
@@ -306,7 +348,7 @@ return function(logic, gameServer, playerManager, calendar)
   end
 
   local function hours_for(kind, value)
-    if kind == "HOURS" then
+    if kind == "HOURS" or kind == "WAIT" then
       return value
     end
     local ok, hours = pcall(function() return calendar:HoursUntil(value) end)
@@ -321,10 +363,36 @@ return function(logic, gameServer, playerManager, calendar)
     return hours
   end
 
+  local function end_session_early(player)
+    if session == nil then
+      log("ignored WAKE (no session)")
+      return
+    end
+    local connId = player:GetConnectionId()
+    if connId ~= session.connId then
+      log("ignored WAKE from a player who does not own the session")
+      return
+    end
+    local name = session.name
+    broadcast(logic.payload_stop(logic.session_elapsed(session)))
+    session = nil
+    log(name .. " woke up early")
+    local ok, err = pcall(function()
+      gameServer:SendGlobalChatMessage(logic.wake_message(name))
+    end)
+    if not ok then
+      log("Error: chat message failed: " .. tostring(err))
+    end
+  end
+
   local function handle_request(player, payload)
     local kind, value = logic.parse_request(payload)
     if kind == nil then
       log("ignored a non-request payload on " .. CHANNEL)
+      return
+    end
+    if kind == "WAKE" then
+      end_session_early(player)
       return
     end
 
@@ -352,9 +420,12 @@ return function(logic, gameServer, playerManager, calendar)
     local name = tostring(player:GetUsername())
     local state = logic.new_session(hours)
 
-    session = { state = state, total = state.remaining, connId = connId, playerId = playerId, name = name }
+    session = {
+      state = state, total = state.remaining, connId = connId, playerId = playerId, name = name,
+      wait = kind == "WAIT",
+    }
     lastAdvanceMs = now
-    log(name .. " sleeps for " .. string.format("%g", hours) .. " h")
+    log(name .. (kind == "WAIT" and " waits for " or " sleeps for ") .. string.format("%g", hours) .. " h")
   end
 
   local function handle(player, fields, message)
@@ -395,11 +466,13 @@ return function(logic, gameServer, playerManager, calendar)
       broadcast(logic.payload_step(step))
     end
     if finished then
-      broadcast(logic.payload_done(session.total))
+      local isWait = session.wait == true
+      broadcast(isWait and logic.payload_stop(session.total) or logic.payload_done(session.total))
       local name, total = session.name, session.total
       session = nil
       local ok, err = pcall(function()
-        gameServer:SendGlobalChatMessage(logic.advance_message(name, total / 1000))
+        local text = isWait and logic.wait_message(name, total / 1000) or logic.advance_message(name, total / 1000)
+        gameServer:SendGlobalChatMessage(text)
       end)
       if not ok then
         log("Error: chat message failed: " .. tostring(err))

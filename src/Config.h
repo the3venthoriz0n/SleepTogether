@@ -13,6 +13,7 @@ namespace SleepTogether::Config
         bool          debug{ false };
         bool          useDefaultWake{ true };  // untouched slider means "sleep until wakeHour"
         bool          restoreStats{ true };    // refill health, magicka and stamina after a shared sleep
+        bool          shareWait{ true };       // a Wait by the party leader advances everyone's time too
     };
 
     void Load();

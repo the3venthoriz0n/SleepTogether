@@ -56,7 +56,7 @@ return function(logic, gameServer, playerManager, calendar)
   end
 
   local function hours_for(kind, value)
-    if kind == "HOURS" then
+    if kind == "HOURS" or kind == "WAIT" then
       return value
     end
     local ok, hours = pcall(function() return calendar:HoursUntil(value) end)
@@ -71,10 +71,36 @@ return function(logic, gameServer, playerManager, calendar)
     return hours
   end
 
+  local function end_session_early(player)
+    if session == nil then
+      log("ignored WAKE (no session)")
+      return
+    end
+    local connId = player:GetConnectionId()
+    if connId ~= session.connId then
+      log("ignored WAKE from a player who does not own the session")
+      return
+    end
+    local name = session.name
+    broadcast(logic.payload_stop(logic.session_elapsed(session)))
+    session = nil
+    log(name .. " woke up early")
+    local ok, err = pcall(function()
+      gameServer:SendGlobalChatMessage(logic.wake_message(name))
+    end)
+    if not ok then
+      log("Error: chat message failed: " .. tostring(err))
+    end
+  end
+
   local function handle_request(player, payload)
     local kind, value = logic.parse_request(payload)
     if kind == nil then
       log("ignored a non-request payload on " .. CHANNEL)
+      return
+    end
+    if kind == "WAKE" then
+      end_session_early(player)
       return
     end
 
@@ -102,9 +128,12 @@ return function(logic, gameServer, playerManager, calendar)
     local name = tostring(player:GetUsername())
     local state = logic.new_session(hours)
 
-    session = { state = state, total = state.remaining, connId = connId, playerId = playerId, name = name }
+    session = {
+      state = state, total = state.remaining, connId = connId, playerId = playerId, name = name,
+      wait = kind == "WAIT",
+    }
     lastAdvanceMs = now
-    log(name .. " sleeps for " .. string.format("%g", hours) .. " h")
+    log(name .. (kind == "WAIT" and " waits for " or " sleeps for ") .. string.format("%g", hours) .. " h")
   end
 
   local function handle(player, fields, message)
@@ -145,11 +174,13 @@ return function(logic, gameServer, playerManager, calendar)
       broadcast(logic.payload_step(step))
     end
     if finished then
-      broadcast(logic.payload_done(session.total))
+      local isWait = session.wait == true
+      broadcast(isWait and logic.payload_stop(session.total) or logic.payload_done(session.total))
       local name, total = session.name, session.total
       session = nil
       local ok, err = pcall(function()
-        gameServer:SendGlobalChatMessage(logic.advance_message(name, total / 1000))
+        local text = isWait and logic.wait_message(name, total / 1000) or logic.advance_message(name, total / 1000)
+        gameServer:SendGlobalChatMessage(text)
       end)
       if not ok then
         log("Error: chat message failed: " .. tostring(err))

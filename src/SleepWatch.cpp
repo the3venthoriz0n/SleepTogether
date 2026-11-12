@@ -144,10 +144,61 @@ namespace SleepTogether::SleepWatch
             return static_cast<float>(value.GetNumber());
         }
 
+        // Game thread only: writes hours into the sleep menu's slider (HoursSlider.value). Unverified in game:
+        // the result is always read back and logged by the caller. Never throws.
+        bool WriteHoursSlider(RE::SleepWaitMenu* menu, int hours)
+        {
+            try {
+                if (!menu) {
+                    return false;
+                }
+                auto& root = menu->GetRuntimeData().root;
+                if (!root.IsObject()) {
+                    return false;
+                }
+                RE::GFxValue slider;
+                if (!root.GetMember("HoursSlider", &slider) || !slider.IsObject()) {
+                    return false;
+                }
+                return slider.SetMember("value", RE::GFxValue(static_cast<double>(hours)));
+            } catch (...) {
+                return false;
+            }
+        }
+
+        std::string DescribeReading(const std::optional<float>& v)
+        {
+            return v ? fmt::format("{:g}", *v) : std::string("unreadable");
+        }
+
+        // True while a request this client sent may still be running on the server.
+        std::atomic_bool g_outstanding{ false };
+
+        // The 3 s throttle shared by sleep and wait requests.
+        bool AllowRequest()
+        {
+            static Core::Throttle throttle(3000);
+            static std::mutex     throttleMutex;
+            std::lock_guard       lock(throttleMutex);
+            return throttle.Allow(NowMs());
+        }
+
+        const char* KindName(Protocol::RequestKind kind)
+        {
+            switch (kind) {
+            case Protocol::RequestKind::kHours: return "HOURS";
+            case Protocol::RequestKind::kUntil: return "UNTIL";
+            case Protocol::RequestKind::kWait:  return "WAIT";
+            case Protocol::RequestKind::kWake:  return "WAKE";
+            }
+            return "?";
+        }
+
         // Runs on the game thread.
         void PollOnGameThread()
         {
             static Core::SleepEdge edge;
+            static Core::SleepEdge waitEdge;
             static int             ticks = 0;
 
             // About once a second, pick up MCM changes.
@@ -165,8 +216,18 @@ namespace SleepTogether::SleepWatch
             // counts down once the sleep starts (7.345 at press, 6.345 about a second later, and the countdown may begin
             // immediately), so the value read on the first active tick can already be below what the player chose.
             static std::optional<float> lastIdleSlider;
+            // Most recent slider reading while the menu was active (counting down); used to tell a cancelled
+            // sleep or wait from a natural finish when the menu closes.
+            static std::optional<float> lastActiveSlider;
+            // Slider preselect for the current menu open (created once, on the first eligible poll).
+            static std::optional<Core::SliderPreselect> preselect;
+            static bool                                 preselectTried = false;
+            static bool                                 prevMenuOpen   = false;
+            static std::int64_t                         openMs         = 0;
 
-            bool                 pressed = false;
+            bool                 menuOpenNow = false;
+            bool                 pressed     = false;
+            bool                 waitPressed = false;
             std::optional<float> pressSlider;
             if (auto* player = RE::PlayerCharacter::GetSingleton()) {
                 // The raw sit/sleep state is not meaningful in this game build (constant 10); diagnostic only.
@@ -184,38 +245,82 @@ namespace SleepTogether::SleepWatch
                 if (ui) {
                     ProbeSleepMenu(ui, menuOpen != 0);
                     if (menuOpen != 0) {
+                        menuOpenNow = true;
                         if (auto menu = ui->GetMenu(RE::SleepWaitMenu::MENU_NAME)) {
                             auto* sleepMenu = static_cast<RE::SleepWaitMenu*>(menu.get());
                             auto& data      = sleepMenu->GetRuntimeData();
-                            if (data.isSleeping && !data.isActive) {
+                            const auto now  = NowMs();
+                            if (!prevMenuOpen) {
+                                openMs         = now;
+                                preselect.reset();
+                                preselectTried = false;
+                                lastActiveSlider.reset();
+                            }
+                            if (data.isActive) {
+                                if (const auto reading = ReadHoursSlider(sleepMenu)) {
+                                    lastActiveSlider = reading;
+                                }
+                            } else {
                                 const auto reading = ReadHoursSlider(sleepMenu);
-                                if (!initialSlider) {
-                                    initialSlider = reading;
+                                if (data.isSleeping) {
+                                    if (!initialSlider) {
+                                        initialSlider = reading;
+                                    }
+                                    const auto settings = Config::Get();
+                                    if (!preselectTried && settings.enabled && settings.useDefaultWake) {
+                                        if (auto* calendar = RE::Calendar::GetSingleton()) {
+                                            preselectTried = true;
+                                            preselect.emplace(Core::HoursUntilWake(
+                                                calendar->GetHour(), static_cast<int>(settings.wakeHour)));
+                                        }
+                                    }
+                                    if (preselect) {
+                                        if (const auto wanted = preselect->Update(reading, now - openMs)) {
+                                            const bool wrote = WriteHoursSlider(sleepMenu, *wanted);
+                                            spdlog::info("Sleep slider preselect: wanted {}, read back {}{}", *wanted,
+                                                DescribeReading(ReadHoursSlider(sleepMenu)), wrote ? "" : " (write failed)");
+                                        }
+                                        if (preselect->Confirmed()) {
+                                            initialSlider = static_cast<float>(preselect->Wanted());
+                                        }
+                                    }
                                 }
                                 if (reading) {
                                     lastIdleSlider = reading;
                                 }
                             }
-                            pressed = Core::IsSleepPressed(true, data.isSleeping, data.isActive);
-                            if (pressed) {
+                            pressed     = Core::IsSleepPressed(true, data.isSleeping, data.isActive);
+                            waitPressed = Core::IsWaitPressed(true, data.isSleeping, data.isActive);
+                            if (pressed || waitPressed) {
                                 pressSlider = Core::PickPressValue(lastIdleSlider, ReadHoursSlider(sleepMenu));
                             }
                         }
-                    } else {
-                        initialSlider.reset();
-                        lastIdleSlider.reset();
                     }
-                } else {
-                    initialSlider.reset();
-                    lastIdleSlider.reset();
                 }
-            } else {
+            }
+
+            if (!menuOpenNow) {
                 initialSlider.reset();
                 lastIdleSlider.reset();
+                preselect.reset();
+                if (prevMenuOpen) {
+                    // Menu closed. A request that was running and a slider still well above zero means the
+                    // player left early rather than the countdown finishing: ask the server to stop.
+                    if (g_outstanding.exchange(false) && Core::WasCancelled(lastActiveSlider)) {
+                        spdlog::info("Sleep menu closed early (last active slider {}), requesting wake",
+                            DescribeReading(lastActiveSlider));
+                        StrLink::SendRequest({ Protocol::RequestKind::kWake, 0 });
+                    }
+                    lastActiveSlider.reset();
+                }
             }
+            prevMenuOpen = menuOpenNow;
 
             if (edge.Update(pressed)) {
                 OnSleepStarted(initialSlider, pressSlider);
+            }
+            if (waitEdge.Update(waitPressed)) {
+                OnWaitStarted(pressSlider);
             }
         }
 
@@ -251,6 +356,11 @@ namespace SleepTogether::SleepWatch
         spdlog::info("Sleep watcher started");
     }
 
+    void OnSessionEnded()
+    {
+        g_outstanding.store(false);
+    }
+
     void OnSleepStarted(std::optional<float> initialSlider, std::optional<float> pressSlider)
     {
         const auto settings = Config::Get();
@@ -258,27 +368,40 @@ namespace SleepTogether::SleepWatch
             spdlog::info("Sleep started but Sleep Together is disabled");
             return;
         }
-
-        static Core::Throttle throttle(3000);
-        static std::mutex     throttleMutex;
-        bool                  allowed;
-        {
-            std::lock_guard lock(throttleMutex);
-            allowed = throttle.Allow(NowMs());
-        }
-        if (!allowed) {
+        if (!AllowRequest()) {
             spdlog::info("Sleep request throttled");
             return;
         }
 
         const auto request = Core::DecideRequest(
             initialSlider, pressSlider, settings.useDefaultWake, static_cast<int>(settings.wakeHour));
-        StrLink::SendRequest(request);
+        if (StrLink::SendRequest(request)) {
+            g_outstanding.store(true);
+        }
 
-        const auto describe = [](const std::optional<float>& v) {
-            return v ? fmt::format("{:g}", *v) : std::string("unreadable");
-        };
-        spdlog::info("Local sleep started (initial slider {}, last before press {}), requested {} {}", describe(initialSlider),
-            describe(pressSlider), request.kind == Protocol::RequestKind::kHours ? "HOURS" : "UNTIL", request.value);
+        spdlog::info("Local sleep started (initial slider {}, last before press {}), requested {} {}",
+            DescribeReading(initialSlider), DescribeReading(pressSlider), KindName(request.kind), request.value);
+    }
+
+    void OnWaitStarted(std::optional<float> pressSlider)
+    {
+        const auto settings = Config::Get();
+        if (!settings.enabled || !settings.shareWait) {
+            spdlog::info("Wait started, not shared (Sleep Together or Share waiting is off)");
+            return;
+        }
+        const auto hours = Core::WaitHours(pressSlider);
+        if (!hours) {
+            spdlog::info("Wait started but the slider could not be read, not shared");
+            return;
+        }
+        if (!AllowRequest()) {
+            spdlog::info("Wait request throttled");
+            return;
+        }
+        if (StrLink::SendRequest({ Protocol::RequestKind::kWait, *hours })) {
+            g_outstanding.store(true);
+        }
+        spdlog::info("Local wait started (slider {}), requested WAIT {}", DescribeReading(pressSlider), *hours);
     }
 }

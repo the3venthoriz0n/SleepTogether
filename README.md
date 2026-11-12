@@ -2,7 +2,7 @@
 
 Shared sleeping for Skyrim Together Reborn (STR) parties, for Skyrim Special Edition / Anniversary Edition.
 
-Status: **0.2.1 test build.** It compiles, and its logic tests pass (C++ tests, Lua tests, and a check of the
+Status: **0.3.0 test build.** It compiles, and its logic tests pass (C++ tests, Lua tests, and a check of the
 server's date arithmetic). **It has not been tried in game**, and the patched server it needs has never been built
 or run. See "Known unknowns".
 
@@ -31,6 +31,27 @@ Sleep Together fixes this:
   bed, with its Sleep button pressed). Opening the menu and cancelling does not send anything. The plugin
   checks about every 100 ms.
 
+New in 0.3.0 (all three are **unverified in game until tested**, do not assume they work):
+
+- **Slider preselect.** With the default-wake option on, when the Sleep menu opens from a bed the plugin sets
+  the hours slider to the number of hours until the wake-up hour (for example 10 at 22:00 with a wake hour of 8),
+  once per menu open. Reason: an untouched slider opens at 1, so the vanilla menu slept about 1 hour and closed
+  while the server kept advancing about 20 hours, and the player could not stop it. The plugin writes the slider's
+  `value`, reads `_value` back and logs `Sleep slider preselect: wanted N, read back M`; if the menu resets the
+  slider just after opening it re-applies up to 5 times within 2 seconds, and never overrides a slider the
+  player has moved. Whether Scaleform accepts this write is untested. It does nothing in a Wait menu or with the
+  default-wake option off.
+- **Cancel.** If the leader leaves the menu while a request is running and the slider was still at 0.5 or more
+  (not a natural finish), the plugin sends `STv2|WAKE`. The server, only for the connection that owns the
+  session, ends it at once, broadcasts `STv2|STOP|<milliHours advanced>` (clients do not restore stats on STOP)
+  and posts `[Sleep Together] <name> woke up early.` How reliably the menu close is told apart from a natural
+  finish is untested.
+- **Shared Wait.** With the MCM option "Share waiting" (`bShareWait`, on by default) a Wait by the party leader
+  (the Sleep/Wait menu not opened from a bed) is shared like a sleep: the plugin sends `STv2|WAIT|<hours>`
+  (the slider value, 1 to 24), the server advances time for everyone at the same pace and ends with `STOP`
+  instead of `DONE` (no stat restore), with the chat line `[Sleep Together] <name> waited for <n> hours.`
+  The same leader, busy and rate-limit rules apply, and cancel works the same way.
+
 ### Why
 
 STR's server owns the clock, and vanilla sleeping did nothing to it. That also makes Survival Mode's need for
@@ -40,8 +61,8 @@ sleep awkward.
 
 - It does **not fast-forward the world simulation** like a vanilla sleep. Only the clock and the days-passed
   counters move. Anything driven by the clock follows, anything that needs the simulation to run does not.
-- If the leader **cancels in the middle of the sleep**, nothing stops the advance: it always runs to the end.
-  Early wake-up is not handled.
+- Cancelling in the middle of a sleep or wait is handled by the new WAKE/STOP path (see above), which is
+  **unverified in game**.
 - There is **no voting**: the party leader decides for everyone.
 - If the server fails midway through a session, no end message (DONE) is sent: the player's days-passed counter
   matches the partial advance and only the stat restore is skipped. There is no client timeout.
@@ -57,7 +78,7 @@ sleep awkward.
 
 ## Install, players
 
-1. Install `SleepTogether-0.2.1.zip` with Vortex (or copy its `Data` folder into your Skyrim `Data` folder).
+1. Install `SleepTogether-0.3.0.zip` with Vortex (or copy its `Data` folder into your Skyrim `Data` folder).
 2. Enable `SleepTogether.esp` in your plugin list. It is a small plugin with one quest, no gameplay: MCM Helper
    only lists a mod whose plugin is loaded.
 3. Settings are in the SkyUI Mod Configuration Menu under "Sleep Together":
@@ -98,7 +119,7 @@ so that clients' dates follow the server's.
 
 ### c) Replace the relay
 
-`SleepTogether-Server-0.2.1.zip` contains a folder `strpm-chat-relay` with `main.lua` and
+`SleepTogether-Server-0.3.0.zip` contains a folder `strpm-chat-relay` with `main.lua` and
 `strpm-chat-relay.manifest`.
 
 1. Make a backup copy of your server's `Resources/strpm-chat-relay` folder.
@@ -120,10 +141,21 @@ The relay hook also drops (never forwards) any envelope that mentions the `sleep
 `channel=` field, including one with a NUL byte after the channel name, so a player cannot forge a step or end
 message for other players.
 
+## Protocol
+
+Channel `sleeptogether.v1`, messages prefixed `STv2|`, digits only, at most 32 characters, anything else is
+ignored (so an old client or relay and a new one do not break each other, they just do not understand the new
+messages).
+
+- Client to server: `STv2|HOURS|<1..24>`, `STv2|UNTIL|<0..23>`, `STv2|WAIT|<1..24>` (new in 0.3.0),
+  `STv2|WAKE` (new, cancel; only honoured from the connection that owns the running session).
+- Server to client: `STv2|STEP|<milliHours>`, `STv2|DONE|<milliHours>` (stat restore), `STv2|STOP|<milliHours>`
+  (new, 0..24000, no stat restore: early wake-up or end of a shared Wait).
+
 ## Settings and files
 
 - defaults, shipped with the mod: `Data\MCM\Config\SleepTogether\settings.ini` (`bEnabled`, `iWakeHour`,
-  `bUseDefaultWake`, `bRestoreStats`, `bDebug`, all under `[General]`)
+  `bUseDefaultWake`, `bRestoreStats`, `bShareWait`, `bDebug`, all under `[General]`)
 - your overrides: `Data\MCM\Settings\SleepTogether.ini` (wins over the default)
 - log: `Documents\My Games\Skyrim Special Edition\SKSE\SleepTogether.log`
 
@@ -138,7 +170,11 @@ Plugin log (`SleepTogether.log`), in this order for one sleep:
   the plugin saw Sleep pressed. "initial slider" is the slider when the menu opened, "last before press" is the
   last reading before the sleep began (the slider counts down once sleeping starts); either is `unreadable` if it
   could not be read.
-- `Sleep request sent STv2|HOURS|8` (or `STv2|UNTIL|8`): the request went to the STRPM bridge.
+- `Sleep slider preselect: wanted 10, read back 10`: the plugin tried to set the slider (0.3.0). A read back
+  different from wanted means the write did not work.
+- `Request sent STv2|HOURS|8` (or `STv2|UNTIL|8`, `STv2|WAIT|3`, `STv2|WAKE`): the request went to the STRPM
+  bridge.
+- `Sleep stopped after 3000 milli-hours, no stat restore`: a STOP arrived (cancel, or end of a shared Wait).
 - `Sleep step +1000 milli-hours (days passed now ...)`: one per game hour, as the server steps.
 - `Sleep done (8000 milli-hours), restored health +..., magicka +..., stamina +...` (or `restored nothing (all
   stats already full)`, or `stat restore disabled`).
@@ -149,7 +185,7 @@ Plugin log (`SleepTogether.log`), in this order for one sleep:
 
 Server log:
 
-- `[SleepTogether] <name> sleeps for <hours> h`
+- `[SleepTogether] <name> sleeps for <hours> h` (or `waits for`, or `<name> woke up early`)
 - `[SleepTogether] deny (not_leader)`, `[SleepTogether] ignored request (busy)` or `(rate_limited)`
 - `[SleepTogether] Error: ...` lines mean something failed (for example `AdvanceHours failed`).
 
@@ -206,6 +242,9 @@ works, its trigger did not fire); the trigger and everything after it are untest
   one-person party, can change the time for the whole server. "Only the party leader" does not mean "only your
   friends' party leader". The "only when alone" rule stops a player with no party, but not a party-of-one leader.
   This only matters on a server with other people on it; it is meant for a private server.
+- Slider preselect (writing `HoursSlider.value`) and cancel detection (menu closed while the slider was still
+  at 0.5 or more) are **unverified in game**. Shared Wait assumes the Wait menu counts its slider down like the
+  Sleep menu does.
 - Sleeping in the same bed as another player is untested.
 - The server's `IsPartyLeader` behaviour was checked in the STR source only.
 
@@ -224,7 +263,11 @@ works, its trigger did not fire); the trigger and everything after it are untest
 | Survival fatigue and health, magicka, stamina after sleeping | |
 | Two players in the same double bed | |
 | A player disconnects during the sleep | |
-| Leader cancels in the middle of the sleep (expected: the server advance continues to the end) | |
+| Open the Sleep menu from a bed with the default-wake option on: the slider is already at the hours until the wake hour (for example 10 at 22:00) | |
+| Leader cancels in the middle of the sleep: time stops on all clients, the chat says "woke up early", and the server is idle again (a new sleep works after 5 seconds) | |
+| Leader waits (Wait menu, not in a bed) for a few hours: time advances for all clients, chat says "waited for" | |
+| A non-leader waits: time does not change for the others, they get the "only the party leader" message | |
+| "Share waiting" turned off: a Wait stays local | |
 
 After testing, please send back: `SleepTogether.log`, the `[SleepTogether]` lines from the server log, and (if the
 trigger misbehaves) the `Sleep menu probe:` and `Sleep state:` lines from the plugin log.
@@ -241,9 +284,9 @@ interpreter for the server tests.
   `cmake --build out\build-release --config Release --target SleepTogetherTests` then
   `ctest --test-dir out\build-release -C Release --output-on-failure`.
 - Server date arithmetic check: `powershell -File tools\server-verify\run.ps1`.
-- Zips: `make_archive.bat` writes `dist\SleepTogether-0.2.1.zip` (the `Data` folder) and
-  `dist\SleepTogether-Server-0.2.1.zip` (the `strpm-chat-relay` folder). It refuses to run if the DLL lacks the
-  0.2.1 version marker, or if the server relay file lacks the Sleep Together handler.
+- Zips: `make_archive.bat` writes `dist\SleepTogether-0.3.0.zip` (the `Data` folder) and
+  `dist\SleepTogether-Server-0.3.0.zip` (the `strpm-chat-relay` folder). It refuses to run if the DLL lacks the
+  0.3.0 version marker, or if the server relay file lacks the Sleep Together handler.
 
 ## License
 

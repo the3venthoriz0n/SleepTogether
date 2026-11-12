@@ -2,6 +2,7 @@
 #include "StrLink.h"
 
 #include "Effects.h"
+#include "SleepWatch.h"
 #include "Protocol.h"
 #include "STRPluginMessagingAPI/STRPluginMessagingAPI.h"
 
@@ -40,7 +41,11 @@ namespace SleepTogether::StrLink
             tasks->AddTask([kind, milliHours]() {
                 if (kind == Protocol::ServerKind::kStep) {
                     Effects::OnStep(milliHours);
+                } else if (kind == Protocol::ServerKind::kStop) {
+                    SleepWatch::OnSessionEnded();
+                    Effects::OnStop(milliHours);
                 } else {
+                    SleepWatch::OnSessionEnded();
                     Effects::OnDone(milliHours);
                 }
             });
@@ -89,7 +94,7 @@ namespace SleepTogether::StrLink
             return false;
         }
 
-        spdlog::info("Sleep request sent {}", payload);
+        spdlog::info("Request sent {}", payload);
         return true;
     }
 }

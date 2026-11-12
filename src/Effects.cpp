@@ -24,6 +24,11 @@ namespace SleepTogether::Effects
         spdlog::info("Sleep step +{} milli-hours (days passed now {})", milliHours, global->value);
     }
 
+    void OnStop(int milliHours)
+    {
+        spdlog::info("Sleep stopped after {} milli-hours, no stat restore", milliHours);
+    }
+
     void OnDone(int milliHours)
     {
         if (!Config::Get().restoreStats) {

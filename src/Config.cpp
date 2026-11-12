@@ -96,6 +96,7 @@ namespace SleepTogether::Config
             s.debug = Flag("General", "bDebug", s.debug);
             s.useDefaultWake = Flag("General", "bUseDefaultWake", s.useDefaultWake);
             s.restoreStats = Flag("General", "bRestoreStats", s.restoreStats);
+            s.shareWait = Flag("General", "bShareWait", s.shareWait);
             return s;
         }
     }

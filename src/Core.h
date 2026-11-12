@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -59,6 +60,83 @@ namespace SleepTogether::Core
     {
         return menuOpen && menuIsSleeping && menuIsActive;
     }
+
+    // Hours the sleep slider should show to reach wakeHour (clamped to [0, 23]) from currentHour: the span to the
+    // next occurrence of wakeHour (a full 24 when it is now), rounded to the nearest whole hour and clamped to
+    // [1, 24]. A non-finite currentHour gives the 8-hour fallback.
+    int HoursUntilWake(float currentHour, int wakeHour);
+
+    // The player left the menu while a sleep or wait was still counting down: the last slider reading taken while
+    // active is present, finite and at least 0.5 (a natural finish leaves it near zero).
+    inline bool WasCancelled(std::optional<float> lastActiveSlider) noexcept
+    {
+        return lastActiveSlider.has_value() && std::isfinite(*lastActiveSlider) && *lastActiveSlider >= 0.5f;
+    }
+
+    // Hours to ask the server to wait: the slider reading rounded half up, clamped to [1, 24]; nothing when the
+    // reading is missing or not finite.
+    std::optional<int> WaitHours(std::optional<float> slider);
+
+    // "[Sleep Together] <name> waited for <n> hour(s)." n = nearest whole hour, at least 1.
+    std::string WaitMessage(std::string_view name, float hours);
+
+    // "[Sleep Together] <name> woke up early."
+    std::string WakeMessage(std::string_view name);
+
+    // The player pressed Wait: the menu is open, was not opened from a bed and the button has been pressed.
+    inline bool IsWaitPressed(bool menuOpen, bool menuIsSleeping, bool menuIsActive) noexcept
+    {
+        return menuOpen && !menuIsSleeping && menuIsActive;
+    }
+
+    // Decides, one poll at a time, when to write the wanted hours into the sleep slider. The first reading is taken
+    // as the original; the wanted value is applied once, and re-applied (at most 5 times, one per call, only within
+    // the first 2000 ms of the open menu) while the reading still equals the original, because the menu may
+    // reinitialise the slider just after opening. Once the reading shows the wanted value it is confirmed and
+    // nothing more happens; once the reading differs from both the original and the wanted value (the player moved
+    // it) nothing more happens either.
+    class SliderPreselect
+    {
+    public:
+        explicit SliderPreselect(int wanted) noexcept : wanted_(wanted) {}
+
+        // Returns the value to write now, if any.
+        std::optional<int> Update(std::optional<float> reading, std::int64_t msSinceOpen) noexcept
+        {
+            if (!reading || !std::isfinite(*reading) || confirmed_ || stopped_) {
+                return std::nullopt;
+            }
+            if (Near(*reading, static_cast<float>(wanted_))) {
+                confirmed_ = true;
+                return std::nullopt;
+            }
+            if (!original_) {
+                original_ = *reading;
+                return wanted_;
+            }
+            if (!Near(*reading, *original_)) {
+                stopped_ = true;
+                return std::nullopt;
+            }
+            if (reapplied_ >= 5 || msSinceOpen > 2000) {
+                return std::nullopt;
+            }
+            ++reapplied_;
+            return wanted_;
+        }
+
+        [[nodiscard]] bool Confirmed() const noexcept { return confirmed_; }
+        [[nodiscard]] int  Wanted() const noexcept { return wanted_; }
+
+    private:
+        static bool Near(float a, float b) noexcept { return std::fabs(a - b) <= 0.001f; }
+
+        int                  wanted_;
+        std::optional<float> original_;
+        int                  reapplied_{ 0 };
+        bool                 confirmed_{ false };
+        bool                 stopped_{ false };
+    };
 
     // Reports each false-to-true transition of a flag exactly once.
     class SleepEdge

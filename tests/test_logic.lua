@@ -191,3 +191,45 @@ do
   assert(m("channel=\0sleeptogether.v1", C) == false)
   assert(m("a\0b|channel=sleeptogether.v1|c\0", C) == true)
 end
+
+-- 0.3.0: WAIT / WAKE requests, STOP payload, messages, elapsed
+do
+  expect_req("STv2|WAIT|1", "WAIT", 1)
+  expect_req("STv2|WAIT|24", "WAIT", 24)
+  expect_req("STv2|WAIT|07", "WAIT", 7)
+  for h = 1, 24 do expect_req("STv2|WAIT|" .. h, "WAIT", h) end
+  expect_req("STv2|WAKE", "WAKE", 0)
+  for _, bad in ipairs({
+    "STv2|WAIT|0", "STv2|WAIT|25", "STv2|WAIT|", "STv2|WAIT|-1", "STv2|WAIT|5 ", "STv2|WAIT", "STv2|WAKE|",
+    "STv2|WAKE|1", "STv2|WAKE ", "STv2|wake", "STv2|WAKEX", " STv2|WAKE", "STv2|WAKE\n", "STv2|WAKE\0",
+    "STv2|WAIT|\xD9\xA8", "STv2|STOP|5",
+  }) do
+    reject_req(bad)
+  end
+  reject_req("STv2|WAIT|" .. string.rep("0", 23) .. "8")
+  expect_req("STv2|WAIT|" .. string.rep("0", 21) .. "8", "WAIT", 8) -- 32 characters
+
+  assert(logic.payload_stop(0) == "STv2|STOP|0")
+  assert(logic.payload_stop(3000) == "STv2|STOP|3000")
+  assert(logic.payload_stop(24000) == "STv2|STOP|24000")
+
+  assert(logic.wake_message("Alice") == "[Sleep Together] Alice woke up early.")
+  assert(logic.wait_message("Alice", 3) == "[Sleep Together] Alice waited for 3 hours.")
+  assert(logic.wait_message("Bob", 1) == "[Sleep Together] Bob waited for 1 hour.")
+  assert(logic.wait_message("Bob", 0.2) == "[Sleep Together] Bob waited for 1 hour.")
+  assert(logic.wait_message("Cy", 18.36) == "[Sleep Together] Cy waited for 18 hours.")
+
+  local s = logic.new_session(5)
+  local sess = { state = s, total = s.remaining }
+  assert(logic.session_elapsed(sess) == 0 and math.type(logic.session_elapsed(sess)) == "integer")
+  logic.session_tick(s, 2.0)
+  assert(logic.session_elapsed(sess) == 2000)
+  logic.session_tick(s, 100)
+  assert(logic.session_elapsed(sess) == 5000)
+  local s2 = logic.new_session(2.5)
+  local sess2 = { state = s2, total = s2.remaining }
+  logic.session_tick(s2, 2.0)
+  assert(logic.session_elapsed(sess2) == 2000)
+  assert(logic.session_elapsed(nil) == 0)
+  assert(logic.session_elapsed({}) == 0)
+end

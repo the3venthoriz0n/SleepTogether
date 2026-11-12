@@ -152,6 +152,109 @@ int main()
     CHECK(Core::PickPressValue(std::nullopt, 4.2f) == std::optional<float>(4.2f));
     CHECK(!Core::PickPressValue(std::nullopt, std::nullopt).has_value());
     CHECK(Core::PickPressValue(5.f, std::nullopt) == std::optional<float>(5.f));
+    // 0.3.0: preselect, cancel, shared wait
+    CHECK(Core::HoursUntilWake(22.0f, 8) == 10);
+    CHECK(Core::HoursUntilWake(8.0f, 8) == 24);
+    CHECK(Core::HoursUntilWake(7.6f, 8) == 1);
+    CHECK(Core::HoursUntilWake(0.0f, 8) == 8);
+    CHECK(Core::HoursUntilWake(7.0f, 8) == 1);
+    CHECK(Core::HoursUntilWake(8.4f, 8) == 24);
+    CHECK(Core::HoursUntilWake(std::nanf(""), 8) == 8);
+    CHECK(Core::HoursUntilWake(INFINITY, 8) == 8);
+    CHECK(Core::HoursUntilWake(22.0f, 99) == 1);  // wake clamped to 23
+    CHECK(Core::HoursUntilWake(23.5f, 0) == 1);   // 0.5 hours away rounds to 1 (or 0 -> clamp 1)
+    CHECK(!Core::WasCancelled(std::nullopt));
+    CHECK(!Core::WasCancelled(std::nanf("")));
+    CHECK(!Core::WasCancelled(0.0f));
+    CHECK(!Core::WasCancelled(0.49f));
+    CHECK(Core::WasCancelled(0.5f));
+    CHECK(Core::WasCancelled(7.3f));
+    CHECK(!Core::WasCancelled(INFINITY));
+    CHECK(Core::WaitMessage("Alice", 3.0f) == "[Sleep Together] Alice waited for 3 hours.");
+    CHECK(Core::WaitMessage("Bob", 1.0f) == "[Sleep Together] Bob waited for 1 hour.");
+    CHECK(Core::WaitMessage("Bob", 0.2f) == "[Sleep Together] Bob waited for 1 hour.");
+    CHECK(Core::WakeMessage("Cy") == "[Sleep Together] Cy woke up early.");
+    for (int bits = 0; bits < 8; ++bits) {
+        const bool open = (bits & 4) != 0, sleeping = (bits & 2) != 0, active = (bits & 1) != 0;
+        CHECK(Core::IsWaitPressed(open, sleeping, active) == (open && !sleeping && active));
+    }
+    CHECK(Core::WaitHours(3.4f) == std::optional<int>(3));
+    CHECK(Core::WaitHours(3.5f) == std::optional<int>(4));
+    CHECK(Core::WaitHours(0.2f) == std::optional<int>(1));
+    CHECK(Core::WaitHours(30.f) == std::optional<int>(24));
+    CHECK(!Core::WaitHours(std::nullopt).has_value());
+    CHECK(!Core::WaitHours(std::nanf("")).has_value());
+    {
+        // fresh open: slider shows 1, wanted 10
+        Core::SliderPreselect p(10);
+        CHECK(!p.Update(std::nullopt, 0).has_value());
+        CHECK(p.Update(1.f, 100) == std::optional<int>(10));   // first attempt
+        CHECK(p.Update(1.f, 200) == std::optional<int>(10));   // menu reinitialised, unmoved: re-apply
+        CHECK(!p.Confirmed());
+        CHECK(!p.Update(10.f, 300).has_value());               // took effect
+        CHECK(p.Confirmed());
+        CHECK(!p.Update(1.f, 400).has_value());                // confirmed: never again
+    }
+    {
+        Core::SliderPreselect p(10);
+        CHECK(p.Update(1.f, 0) == std::optional<int>(10));
+        CHECK(!p.Update(5.f, 100).has_value());                // player moved it
+        CHECK(!p.Update(1.f, 200).has_value());                // even back at the original: stopped
+        CHECK(!p.Confirmed());
+    }
+    {
+        Core::SliderPreselect p(10);
+        CHECK(p.Update(1.f, 0).has_value());
+        int again = 0;
+        for (int i = 1; i <= 20; ++i) {
+            if (p.Update(1.f, i * 50)) ++again;
+        }
+        CHECK(again == 5);                                      // at most 5 re-applies
+    }
+    {
+        Core::SliderPreselect p(10);
+        CHECK(p.Update(1.f, 0).has_value());
+        CHECK(p.Update(1.f, 2000).has_value());
+        CHECK(!p.Update(1.f, 2001).has_value());                // beyond 2000 ms
+    }
+    {
+        Core::SliderPreselect p(1);                             // slider already shows the wanted value
+        CHECK(!p.Update(1.f, 0).has_value());
+        CHECK(p.Confirmed());
+    }
+    {
+        Core::SliderPreselect p(10);
+        CHECK(!p.Update(std::nanf(""), 0).has_value());
+        CHECK(p.Update(1.f, 100) == std::optional<int>(10));
+    }
+    {
+        using Protocol::ServerKind;
+        CHECK(Protocol::FormatRequest({ RequestKind::kWait, 5 }) == "STv2|WAIT|5");
+        CHECK(Protocol::FormatRequest({ RequestKind::kWake, 0 }) == "STv2|WAKE");
+        const auto expectReq = [](std::string_view text, RequestKind kind, int value) {
+            const auto r = Protocol::ParseRequest(text);
+            return r && r->kind == kind && r->value == value;
+        };
+        CHECK(expectReq("STv2|WAIT|1", RequestKind::kWait, 1));
+        CHECK(expectReq("STv2|WAIT|24", RequestKind::kWait, 24));
+        CHECK(expectReq("STv2|WAIT|07", RequestKind::kWait, 7));
+        CHECK(expectReq("STv2|WAKE", RequestKind::kWake, 0));
+        for (auto bad : { "STv2|WAIT|0", "STv2|WAIT|25", "STv2|WAIT|", "STv2|WAIT|-1", "STv2|WAIT|5 ", "STv2|WAKE|",
+                          "STv2|WAKE|1", "STv2|WAKE ", "STv2|wake", "STv2|WAKEX", " STv2|WAKE", "STv2|WAIT" })
+            CHECK(!Protocol::ParseRequest(bad));
+        CHECK(!Protocol::ParseRequest(std::string("STv2|WAKE\0", 10)));
+        CHECK(!Protocol::ParseRequest("STv2|WAIT|" + std::string(23, '0') + "8"));
+        const auto expectMsg = [](std::string_view text, ServerKind kind, int milli) {
+            const auto m = Protocol::ParseServerMessage(text);
+            return m && m->kind == kind && m->milliHours == milli;
+        };
+        CHECK(expectMsg("STv2|STOP|0", ServerKind::kStop, 0));
+        CHECK(expectMsg("STv2|STOP|3000", ServerKind::kStop, 3000));
+        CHECK(expectMsg("STv2|STOP|24000", ServerKind::kStop, 24000));
+        for (auto bad : { "STv2|STOP|24001", "STv2|STOP|", "STv2|STOP|-1", "STv2|STOP|5 ", "STv2|STOP|1e3", "STv2|STOP" })
+            CHECK(!Protocol::ParseServerMessage(bad));
+        CHECK(!Protocol::ParseServerMessage("STv2|STOP|" + std::string(23, '0')));
+    }
     std::puts("All tests passed");
     return 0;
 }

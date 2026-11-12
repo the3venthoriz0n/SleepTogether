@@ -1,6 +1,6 @@
 {
     "name": "sleeptogether",
-    "version-string": "0.2.1",
+    "version-string": "0.3.0",
     "dependencies": [
         "directxmath",
         "directxtk",

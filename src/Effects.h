@@ -10,4 +10,7 @@ namespace SleepTogether::Effects
 
     // End of the shared sleep: refills health, magicka and stamina when the restoreStats setting is on.
     void OnDone(int milliHours);
+
+    // The session ended early (the leader woke up) or was a shared Wait: logs only, no stat restore.
+    void OnStop(int milliHours);
 }

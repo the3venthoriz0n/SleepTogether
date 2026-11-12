@@ -249,6 +249,119 @@ do
   assert(#t.calls.Advance == 2 and #t.calls.Global == 2)
 end
 
+-- WAKE: the session owner ends it at once with STOP, one chat line, no further steps
+do
+  local t = setup({ leader = true })
+  assert(sent_true(t.send(CHANNEL, "STv2|HOURS|10")))
+  t.ticks(3, 1.0)
+  assert(#t.calls.Advance == 3 and #t.calls.Global == 0)
+  local before = #t.calls.Chat
+  assert(sent_true(t.send(CHANNEL, "STv2|WAKE")))
+  assert(logged("[SleepTogether]"))
+  assert(#t.calls.Global == 1 and t.calls.Global[1] == "[Sleep Together] Alice woke up early.")
+  assert(#t.calls.Chat == before + 3, "STOP goes to every player")
+  local per = delivered(t.calls)
+  for _, conn in ipairs({ 77, 78, 79 }) do
+    assert(per[conn][#per[conn]] == "STv2|STOP|3000", conn)
+    for i = 1, #per[conn] - 1 do assert(per[conn][i] == "STv2|STEP|1000") end
+  end
+  t.ticks(5, 1.0)
+  assert(#t.calls.Advance == 3 and #t.calls.Global == 1 and #t.calls.Chat == before + 3, "idle after wake")
+  -- WAKE again with no session: ignored, nothing sent
+  assert(sent_true(t.send(CHANNEL, "STv2|WAKE")))
+  assert(#t.calls.Global == 1 and #t.calls.Chat == before + 3)
+  assert(not error_logged())
+end
+
+-- WAKE half-way through a step: elapsed counts whole steps only (integer milli-hours)
+do
+  local t = setup({ leader = true, count = 2 })
+  assert(sent_true(t.send(CHANNEL, "STv2|UNTIL|8")))
+  t.ticks(1, 1.5)
+  assert(sent_true(t.send(CHANNEL, "STv2|WAKE")))
+  local per = delivered(t.calls)
+  assert(per[77][#per[77]] == "STv2|STOP|1000")
+end
+
+-- WAKE immediately after the request: STOP 0
+do
+  local t = setup({ leader = true, count = 2 })
+  assert(sent_true(t.send(CHANNEL, "STv2|HOURS|4")))
+  assert(sent_true(t.send(CHANNEL, "STv2|WAKE")))
+  local per = delivered(t.calls)
+  assert(#per[77] == 1 and per[77][1] == "STv2|STOP|0")
+  assert(#t.calls.Global == 1 and t.calls.Advance[1] == nil)
+end
+
+-- WAKE from another player (even the party leader of nothing) is ignored
+do
+  local t = setup({ leader = true })
+  assert(sent_true(t.send(CHANNEL, "STv2|HOURS|5")))
+  t.ticks(1, 1.0)
+  local chat = #t.calls.Chat
+  assert(sent_true(t.send(CHANNEL, "STv2|WAKE", t.players[2])))
+  assert(logged("ignored") and not error_logged())
+  assert(#t.calls.Chat == chat and #t.calls.Global == 0)
+  t.ticks(4, 1.0)
+  assert(#t.calls.Advance == 5 and #t.calls.Global == 1, "session continued to its end")
+end
+
+-- WAKE does not reset the rate limit: a new request right after is still limited, and one after the
+-- limit as long as the original request started is fine
+do
+  local t = setup({ leader = true })
+  assert(sent_true(t.send(CHANNEL, "STv2|HOURS|5"))) -- tick 10000
+  t.ticks(1, 1.0)
+  t.set_tick(11000)
+  assert(sent_true(t.send(CHANNEL, "STv2|WAKE")))
+  assert(sent_true(t.send(CHANNEL, "STv2|HOURS|2")))
+  assert(logged("rate"))
+  assert(#t.calls.Advance == 1)
+  t.set_tick(15001)
+  assert(sent_true(t.send(CHANNEL, "STv2|HOURS|2")))
+  t.ticks(2, 1.0)
+  assert(#t.calls.Advance == 3 and #t.calls.Global == 2)
+end
+
+-- shared Wait: WAIT behaves like HOURS but chat line differs and the end is STOP, not DONE
+do
+  local t = setup({ leader = true })
+  assert(sent_true(t.send(CHANNEL, "STv2|WAIT|3")))
+  assert(logged("waits for 3 h"))
+  t.ticks(3, 1.0)
+  assert(#t.calls.Advance == 3)
+  assert(#t.calls.Global == 1 and t.calls.Global[1] == "[Sleep Together] Alice waited for 3 hours.")
+  local per = delivered(t.calls)
+  for _, conn in ipairs({ 77, 78, 79 }) do
+    assert(#per[conn] == 4 and per[conn][4] == "STv2|STOP|3000", conn)
+    for _, p in ipairs(per[conn]) do assert(p ~= "STv2|DONE|3000") end
+  end
+  assert(not error_logged())
+end
+
+-- Wait: only the leader; busy; cancel works
+do
+  local t = setup({ leader = false, count = 2 })
+  assert(sent_true(t.send(CHANNEL, "STv2|WAIT|3")))
+  assert(#t.calls.Chat == 1 and t.calls.Chat[1][1] == 78)
+  assert(t.calls.Chat[1][2] == "[Sleep Together] Only the party leader can advance time.")
+  t.ticks(3, 1.0)
+  assert(#t.calls.Advance == 0 and #t.calls.Global == 0)
+end
+do
+  local t = setup({ leader = true })
+  assert(sent_true(t.send(CHANNEL, "STv2|WAIT|6")))
+  t.ticks(2, 1.0)
+  assert(sent_true(t.send(CHANNEL, "STv2|HOURS|3")))
+  assert(logged("busy"))
+  assert(sent_true(t.send(CHANNEL, "STv2|WAKE")))
+  assert(#t.calls.Global == 1 and t.calls.Global[1] == "[Sleep Together] Alice woke up early.")
+  local per = delivered(t.calls)
+  assert(per[77][#per[77]] == "STv2|STOP|2000")
+  t.ticks(5, 1.0)
+  assert(#t.calls.Advance == 2)
+end
+
 -- forged STEP/DONE and other payloads from a client are ignored but handled
 do
   local t = setup({ leader = true })

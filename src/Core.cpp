@@ -55,6 +55,46 @@ namespace SleepTogether::Core
         return msg;
     }
 
+    int HoursUntilWake(float currentHour, int wakeHour)
+    {
+        if (!std::isfinite(currentHour)) {
+            return 8;
+        }
+        double span = static_cast<double>(std::clamp(wakeHour, 0, 23)) - static_cast<double>(currentHour);
+        if (span <= 0.0) {
+            span += 24.0;
+        }
+        return std::clamp(static_cast<int>(std::lround(span)), 1, 24);
+    }
+
+    std::optional<int> WaitHours(std::optional<float> slider)
+    {
+        if (!slider || !std::isfinite(*slider)) {
+            return std::nullopt;
+        }
+        const float v = std::clamp(*slider, 0.0f, 24.0f);
+        return std::clamp(static_cast<int>(std::floor(v + 0.5f)), 1, 24);
+    }
+
+    std::string WaitMessage(std::string_view name, float hours)
+    {
+        const int n = std::isfinite(hours) ? std::max(1, static_cast<int>(std::lround(std::clamp(hours, 0.0f, 24000.0f)))) : 1;
+        std::string msg = "[Sleep Together] ";
+        msg += name;
+        msg += " waited for ";
+        msg += std::to_string(n);
+        msg += n == 1 ? " hour." : " hours.";
+        return msg;
+    }
+
+    std::string WakeMessage(std::string_view name)
+    {
+        std::string msg = "[Sleep Together] ";
+        msg += name;
+        msg += " woke up early.";
+        return msg;
+    }
+
     std::string DenyMessage()
     {
         return "[Sleep Together] Only the party leader can advance time.";

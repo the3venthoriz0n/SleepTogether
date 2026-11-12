@@ -8,7 +8,7 @@ namespace SleepTogether::StrLink
     // Returns false (and logs an error) when the API is not installed or registration fails.
     bool Start();
 
-    // Sends the formatted request (HOURS or UNTIL) to the server. Returns false when not started or not
+    // Sends the formatted request (HOURS, UNTIL, WAIT or WAKE) to the server. Returns false when not started or not
     // connected. Safe to call from any thread.
     bool SendRequest(const Protocol::Request& request);
 }

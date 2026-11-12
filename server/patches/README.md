@@ -73,5 +73,5 @@ server's:
 ## Relay resource
 
 Replace the `strpm-chat-relay` resource on the server with the new one from
-`SleepTogether-Server-0.2.1.zip`, then restart the server. Both the patched server and the
+`SleepTogether-Server-0.3.0.zip`, then restart the server. Both the patched server and the
 new relay are required.

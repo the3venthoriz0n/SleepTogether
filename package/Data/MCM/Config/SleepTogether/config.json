@@ -49,6 +49,15 @@
 			}
 		},
 		{
+			"id": "bShareWait:General",
+			"text": "Share waiting",
+			"type": "toggle",
+			"help": "Waiting also advances the party's time.",
+			"valueOptions": {
+				"sourceType": "ModSettingBool"
+			}
+		},
+		{
 			"text": "General",
 			"type": "header"
 		},

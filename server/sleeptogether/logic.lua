@@ -6,6 +6,9 @@ local logic = {}
 
 local HOURS_PREFIX = "STv2|HOURS|"
 local UNTIL_PREFIX = "STv2|UNTIL|"
+local WAIT_PREFIX = "STv2|WAIT|"
+local WAKE_TEXT = "STv2|WAKE"
+local STOP_PREFIX = "STv2|STOP|"
 local STEP_PREFIX = "STv2|STEP|"
 local DONE_PREFIX = "STv2|DONE|"
 local MAX_REQUEST_LENGTH = 32
@@ -34,12 +37,20 @@ local function parse_number(digits, maxValue)
   return value
 end
 
--- Mirrors Protocol::ParseRequest. Returns "HOURS", 1..24 or "UNTIL", 0..23; else nil.
+-- Mirrors Protocol::ParseRequest. Returns "HOURS", 1..24; "UNTIL", 0..23; "WAIT", 1..24; or "WAKE", 0; else nil.
 function logic.parse_request(text)
   if type(text) ~= "string" or #text > MAX_REQUEST_LENGTH then
     return nil
   end
-  if string.sub(text, 1, #HOURS_PREFIX) == HOURS_PREFIX then
+  if text == WAKE_TEXT then
+    return "WAKE", 0
+  end
+  if string.sub(text, 1, #WAIT_PREFIX) == WAIT_PREFIX then
+    local n = parse_number(string.sub(text, #WAIT_PREFIX + 1), 24)
+    if n and n >= 1 then
+      return "WAIT", n
+    end
+  elseif string.sub(text, 1, #HOURS_PREFIX) == HOURS_PREFIX then
     local n = parse_number(string.sub(text, #HOURS_PREFIX + 1), 24)
     if n and n >= 1 then
       return "HOURS", n
@@ -63,6 +74,10 @@ end
 
 function logic.payload_done(milliHours)
   return DONE_PREFIX .. string.format("%d", round(milliHours))
+end
+
+function logic.payload_stop(milliHours)
+  return STOP_PREFIX .. string.format("%d", round(milliHours))
 end
 
 local function split_fields(envelope)
@@ -162,6 +177,21 @@ function logic.advance_message(name, hours)
     (n == 1 and " hour." or " hours.")
 end
 
+-- Mirrors Core::WaitMessage: whole hours, at least 1.
+function logic.wait_message(name, hours)
+  local n = 1
+  if type(hours) == "number" and hours == hours and hours ~= math.huge and hours ~= -math.huge then
+    n = math.max(1, round(math.min(math.max(hours, 0), MAX_MILLI_HOURS)))
+  end
+  return "[Sleep Together] " .. name .. " waited for " .. string.format("%d", n) ..
+    (n == 1 and " hour." or " hours.")
+end
+
+-- Mirrors Core::WakeMessage. Claims no hours: only that the player woke up.
+function logic.wake_message(name)
+  return "[Sleep Together] " .. name .. " woke up early."
+end
+
 function logic.deny_message()
   return "[Sleep Together] Only the party leader can advance time."
 end
@@ -214,6 +244,18 @@ function logic.session_tick(session, deltaSeconds)
     return steps, true
   end
   return steps, false
+end
+
+-- Milli-hours advanced so far by a handler session { state, total, ... } (integers). 0 for anything malformed.
+function logic.session_elapsed(session)
+  if type(session) ~= "table" or type(session.state) ~= "table" then
+    return 0
+  end
+  local total, remaining = session.total, session.state.remaining
+  if math.type(total) ~= "integer" or math.type(remaining) ~= "integer" then
+    return 0
+  end
+  return math.max(0, math.min(total - remaining, MAX_MILLI_HOURS))
 end
 
 return logic
