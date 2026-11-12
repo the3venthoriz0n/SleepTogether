@@ -94,6 +94,8 @@ namespace SleepTogether::Config
             s.enabled = Flag("General", "bEnabled", s.enabled);
             s.wakeHour = Number("General", "iWakeHour", s.wakeHour, 23);
             s.debug = Flag("General", "bDebug", s.debug);
+            s.useDefaultWake = Flag("General", "bUseDefaultWake", s.useDefaultWake);
+            s.restoreStats = Flag("General", "bRestoreStats", s.restoreStats);
             return s;
         }
     }

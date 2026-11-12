@@ -11,6 +11,8 @@ namespace SleepTogether::Config
         bool          enabled{ true };
         std::uint32_t wakeHour{ 8 };  // game hour (0 to 23) the party wakes at
         bool          debug{ false };
+        bool          useDefaultWake{ true };  // untouched slider means "sleep until wakeHour"
+        bool          restoreStats{ true };    // refill health, magicka and stamina after a shared sleep
     };
 
     void Load();

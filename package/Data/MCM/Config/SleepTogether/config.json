@@ -31,6 +31,24 @@
 			}
 		},
 		{
+			"id": "bUseDefaultWake:General",
+			"text": "Sleep until the wake-up hour unless I move the slider",
+			"type": "toggle",
+			"help": "On: if you leave the hours slider alone, everyone sleeps until your wake-up hour. If you move the slider, that many hours pass. Off: always use the slider.",
+			"valueOptions": {
+				"sourceType": "ModSettingBool"
+			}
+		},
+		{
+			"id": "bRestoreStats:General",
+			"text": "Restore health, magicka and stamina after a shared sleep",
+			"type": "toggle",
+			"help": "Players recover when a shared sleep ends, like after a vanilla sleep.",
+			"valueOptions": {
+				"sourceType": "ModSettingBool"
+			}
+		},
+		{
 			"text": "General",
 			"type": "header"
 		},

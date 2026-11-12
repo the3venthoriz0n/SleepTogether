@@ -41,13 +41,13 @@ namespace SleepTogether::StrLink
         return true;
     }
 
-    bool SendSleepRequest(int hour)
+    bool SendRequest(const Protocol::Request& request)
     {
         if (!g_running.load()) {
             return false;
         }
 
-        const std::string   payload = Protocol::FormatRequest({ Protocol::RequestKind::kUntil, hour });  // temporary until Task 7
+        const std::string   payload = Protocol::FormatRequest(request);
         const STRPM::Target server{ STRPM::TargetKind::kServer, 0, nullptr };
 
         constexpr auto flags = STRPM::kMessageReliable | STRPM::kMessageOrdered;
@@ -58,7 +58,7 @@ namespace SleepTogether::StrLink
             return false;
         }
 
-        spdlog::info("Sleep request sent hour={}", hour);
+        spdlog::info("Sleep request sent {}", payload);
         return true;
     }
 }

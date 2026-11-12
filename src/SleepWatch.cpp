@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdio>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -122,6 +123,27 @@ namespace SleepTogether::SleepWatch
             }
         }
 
+        // Game thread only: the hours the sleep menu's slider currently shows (HoursSlider._value), if readable.
+        std::optional<float> ReadHoursSlider(RE::SleepWaitMenu* menu)
+        {
+            if (!menu) {
+                return std::nullopt;
+            }
+            auto& root = menu->GetRuntimeData().root;
+            if (!root.IsObject()) {
+                return std::nullopt;
+            }
+            RE::GFxValue slider;
+            if (!root.GetMember("HoursSlider", &slider) || !slider.IsObject()) {
+                return std::nullopt;
+            }
+            RE::GFxValue value;
+            if (!slider.GetMember("_value", &value) || !value.IsNumber()) {
+                return std::nullopt;
+            }
+            return static_cast<float>(value.GetNumber());
+        }
+
         // Runs on the game thread.
         void PollOnGameThread()
         {
@@ -137,7 +159,11 @@ namespace SleepTogether::SleepWatch
             static int          lastMenuOpen = -1;
             static std::int64_t lastChangeMs = 0;
 
-            bool pressed = false;
+            // Slider value captured while the sleep menu is open and not yet sleeping; forgotten when it closes.
+            static std::optional<float> initialSlider;
+
+            bool                 pressed = false;
+            std::optional<float> pressSlider;
             if (auto* player = RE::PlayerCharacter::GetSingleton()) {
                 // The raw sit/sleep state is not meaningful in this game build (constant 10); diagnostic only.
                 const auto state = player->GetSitSleepState();
@@ -155,15 +181,28 @@ namespace SleepTogether::SleepWatch
                     ProbeSleepMenu(ui, menuOpen != 0);
                     if (menuOpen != 0) {
                         if (auto menu = ui->GetMenu(RE::SleepWaitMenu::MENU_NAME)) {
-                            auto& data = static_cast<RE::SleepWaitMenu*>(menu.get())->GetRuntimeData();
-                            pressed    = Core::IsSleepPressed(true, data.isSleeping, data.isActive);
+                            auto* sleepMenu = static_cast<RE::SleepWaitMenu*>(menu.get());
+                            auto& data      = sleepMenu->GetRuntimeData();
+                            if (data.isSleeping && !data.isActive && !initialSlider) {
+                                initialSlider = ReadHoursSlider(sleepMenu);
+                            }
+                            pressed = Core::IsSleepPressed(true, data.isSleeping, data.isActive);
+                            if (pressed) {
+                                pressSlider = ReadHoursSlider(sleepMenu);
+                            }
                         }
+                    } else {
+                        initialSlider.reset();
                     }
+                } else {
+                    initialSlider.reset();
                 }
+            } else {
+                initialSlider.reset();
             }
 
             if (edge.Update(pressed)) {
-                OnSleepStarted(std::nullopt);
+                OnSleepStarted(initialSlider, pressSlider);
             }
         }
 
@@ -199,7 +238,7 @@ namespace SleepTogether::SleepWatch
         spdlog::info("Sleep watcher started");
     }
 
-    void OnSleepStarted(std::optional<float> chosenEndHour)
+    void OnSleepStarted(std::optional<float> initialSlider, std::optional<float> pressSlider)
     {
         const auto settings = Config::Get();
         if (!settings.enabled) {
@@ -219,8 +258,14 @@ namespace SleepTogether::SleepWatch
             return;
         }
 
-        const int hour = Core::ResolveWakeHour(chosenEndHour, static_cast<int>(settings.wakeHour));
-        StrLink::SendSleepRequest(hour);
-        spdlog::info("Local sleep started (Sleep pressed in the sleep menu), requested wake hour {}", hour);
+        const auto request = Core::DecideRequest(
+            initialSlider, pressSlider, settings.useDefaultWake, static_cast<int>(settings.wakeHour));
+        StrLink::SendRequest(request);
+
+        const auto describe = [](const std::optional<float>& v) {
+            return v ? fmt::format("{:g}", *v) : std::string("unreadable");
+        };
+        spdlog::info("Local sleep started (initial slider {}, at press {}), requested {} {}", describe(initialSlider),
+            describe(pressSlider), request.kind == Protocol::RequestKind::kHours ? "HOURS" : "UNTIL", request.value);
     }
 }
