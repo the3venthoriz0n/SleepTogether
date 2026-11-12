@@ -19,7 +19,7 @@ namespace SleepTogether::SleepWatch
 {
     namespace
     {
-        constexpr auto kPollInterval = std::chrono::milliseconds(250);
+        constexpr auto kPollInterval = std::chrono::milliseconds(100);
 
         std::atomic_bool g_started{ false };
         std::atomic_bool g_taskPending{ false };
@@ -109,7 +109,7 @@ namespace SleepTogether::SleepWatch
             static int             ticks = 0;
 
             // About once a second, pick up MCM changes.
-            if (++ticks % 4 == 0) {
+            if (++ticks % 10 == 0) {
                 Config::ReloadIfChanged();
             }
 
@@ -117,14 +117,15 @@ namespace SleepTogether::SleepWatch
             static int          lastMenuOpen = -1;
             static std::int64_t lastChangeMs = 0;
 
-            bool sleeping = false;
+            bool pressed = false;
             if (auto* player = RE::PlayerCharacter::GetSingleton()) {
+                // The raw sit/sleep state is not meaningful in this game build (constant 10); diagnostic only.
                 const auto state = player->GetSitSleepState();
                 auto* ui         = RE::UI::GetSingleton();
                 const int   menuOpen = (ui && ui->IsMenuOpen(RE::SleepWaitMenu::MENU_NAME)) ? 1 : 0;
                 if (static_cast<int>(state) != lastState || menuOpen != lastMenuOpen) {
                     const auto now = NowMs();
-                    spdlog::info("Sleep state: sitSleepState={} sleepMenuOpen={} (+{} ms since last change)",
+                    spdlog::info("Sleep state: sitSleepState(raw)={} sleepMenuOpen={} (+{} ms since last change)",
                         static_cast<int>(state), menuOpen, lastState < 0 ? 0 : now - lastChangeMs);
                     lastState    = static_cast<int>(state);
                     lastMenuOpen = menuOpen;
@@ -132,19 +133,16 @@ namespace SleepTogether::SleepWatch
                 }
                 if (ui) {
                     ProbeSleepMenu(ui, menuOpen != 0);
-                }
-                switch (state) {
-                case RE::SIT_SLEEP_STATE::kWantToSleep:
-                case RE::SIT_SLEEP_STATE::kWaitingForSleepAnim:
-                case RE::SIT_SLEEP_STATE::kIsSleeping:
-                    sleeping = true;
-                    break;
-                default:
-                    break;
+                    if (menuOpen != 0) {
+                        if (auto menu = ui->GetMenu(RE::SleepWaitMenu::MENU_NAME)) {
+                            auto& data = static_cast<RE::SleepWaitMenu*>(menu.get())->GetRuntimeData();
+                            pressed    = Core::IsSleepPressed(true, data.isSleeping, data.isActive);
+                        }
+                    }
                 }
             }
 
-            if (edge.Update(sleeping)) {
+            if (edge.Update(pressed)) {
                 OnSleepStarted(std::nullopt);
             }
         }
@@ -203,6 +201,6 @@ namespace SleepTogether::SleepWatch
 
         const int hour = Core::ResolveWakeHour(chosenEndHour, static_cast<int>(settings.wakeHour));
         StrLink::SendSleepRequest(hour);
-        spdlog::info("Local sleep started, requested wake hour {}", hour);
+        spdlog::info("Local sleep started (Sleep pressed in the sleep menu), requested wake hour {}", hour);
     }
 }

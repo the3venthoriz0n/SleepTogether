@@ -34,6 +34,13 @@ namespace SleepTogether::Core
     std::string FormatProbeSnapshot(float timer, bool isSleeping, bool isActive, float gameHour,
         const std::vector<std::pair<std::string, std::string>>& members);
 
+    // The player pressed Sleep: the Sleep/Wait menu is open, was opened from a bed (isSleeping) and the Sleep
+    // button has been pressed (isActive). A Wait menu or a cancelled sleep menu is never "pressed".
+    inline bool IsSleepPressed(bool menuOpen, bool menuIsSleeping, bool menuIsActive) noexcept
+    {
+        return menuOpen && menuIsSleeping && menuIsActive;
+    }
+
     // Reports each false-to-true transition of a flag exactly once.
     class SleepEdge
     {

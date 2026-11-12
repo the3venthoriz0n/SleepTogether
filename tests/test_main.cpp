@@ -52,6 +52,10 @@ int main()
     CHECK(!Protocol::ParseSleepRequest("STv1|SLEEP|" + std::string(21, '0') + "8"));
     CHECK(Protocol::ParseSleepRequest("STv1|SLEEP|" + std::string(20, '0') + "8") == 8);
     CHECK(!Protocol::ParseSleepRequest("STv1|SLEEP|" + std::string(22, '0')));
+    for (int bits = 0; bits < 8; ++bits) {
+        const bool open = (bits & 4) != 0, sleeping = (bits & 2) != 0, active = (bits & 1) != 0;
+        CHECK(Core::IsSleepPressed(open, sleeping, active) == (bits == 7));
+    }
     {
         Core::SleepEdge edge;
         CHECK(edge.Update(false) == false);
