@@ -100,7 +100,7 @@ local function split_fields(envelope)
 end
 
 -- True when any |-separated token of the raw message is exactly
--- "channel=<channel>". Order independent, so a duplicated channel= key cannot
+-- "channel=<channel>" or that text followed by a NUL byte. Order independent, so a duplicated channel= key cannot
 -- hide our channel from us (the client bridge reads the first, the relay the
 -- last). Never raises.
 function logic.mentions_channel(message, channel)
@@ -112,8 +112,13 @@ function logic.mentions_channel(message, channel)
   local len = #message
   while start <= len + 1 do
     local stop = string.find(message, "|", start, true) or (len + 1)
-    if stop - start == #wanted and string.sub(message, start, stop - 1) == wanted then
-      return true
+    -- Exactly our token, or our token followed by a NUL: a receiver that compares
+    -- the channel as a C string stops at the NUL and sees our channel.
+    local n = #wanted
+    if stop - start >= n and string.sub(message, start, start + n - 1) == wanted then
+      if stop - start == n or string.byte(message, start + n) == 0 then
+        return true
+      end
     end
     start = stop + 1
   end

@@ -111,6 +111,10 @@ the new relay files in `server/upstream/strpm-chat-relay/` and run `python -I to
 Note: any party leader on the server can change the time for everyone (see "Known unknowns"), so only use this on
 a server whose players you trust.
 
+The relay hook also drops (never forwards) any envelope that mentions the `sleeptogether.v1` channel in any
+`channel=` field, including one with a NUL byte after the channel name, so a player cannot forge a step or end
+message for other players.
+
 ## Settings and files
 
 - defaults, shipped with the mod: `Data\MCM\Config\SleepTogether\settings.ini` (`bEnabled`, `iWakeHour`,

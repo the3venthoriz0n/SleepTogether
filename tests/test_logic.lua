@@ -181,6 +181,13 @@ do
   assert(m(string.rep("a", 5000), C) == false)
   assert(m(string.rep("a|", 5000), C) == false)
   assert(m(string.rep("a", 5000) .. "|channel=sleeptogether.v1", C) == true)
-  assert(m("a\0b|channel=sleeptogether.v1\0|c", C) == false)
+  assert(m("a\0b|channel=sleeptogether.v1\0|c", C) == true) -- C-string comparison stops at the NUL
+  assert(m("channel=sleeptogether.v1\0zz", C) == true)
+  assert(m("x=1|channel=sleeptogether.v1\0", C) == true)
+  assert(m("channel=sleeptogether.v1x", C) == false)
+  assert(m("channel=sleeptogether.v1 ", C) == false)
+  assert(m("xchannel=sleeptogether.v1", C) == false)
+  assert(m("channel=sleeptogether.v\0", C) == false)
+  assert(m("channel=\0sleeptogether.v1", C) == false)
   assert(m("a\0b|channel=sleeptogether.v1|c\0", C) == true)
 end

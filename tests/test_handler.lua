@@ -469,6 +469,25 @@ do
   ok, handled = pcall(t.handle, t.players[1], fields_of(d), d)
   assert(ok and handled == true and #t.calls.Advance == 0 and logged("dropped forged envelope"))
 
+  -- NUL after our channel in the first channel= token: a receiver comparing C strings sees ours
+  do
+    local nm = "STRPM|v2|msg=x|seq=1|channel=sleeptogether.v1\0zz|channel=evil.chan|payload=" .. STEP ..
+      "|flags=0|part=1|parts=1|target=all"
+    local nf = fields_of(nm)
+    assert(nf.channel == "evil.chan", "relay (last wins) sees the foreign channel")
+    local first = bridge.read_field(nm, "channel")
+    assert(first == "sleeptogether.v1\0zz")
+    assert(first:match("^[^%z]*") == CHANNEL, "C-string comparison truncates at the NUL")
+    assert(bridge.bridge_accept(nm .. "|sender=77") == "STv2|STEP|24000")
+    t = setup({ leader = true })
+    reset_log()
+    ok, handled = pcall(t.handle, t.players[1], nf, nm)
+    assert(ok and handled == true, "NUL-truncated channel must be handled")
+    assert(#t.calls.Advance == 0 and #t.calls.Until == 0 and #t.calls.Chat == 0 and #t.calls.Global == 0)
+    assert(logged("[SleepTogether] dropped forged envelope"))
+    assert(not error_logged())
+  end
+
   -- another channel, no mention of ours: not handled, relayed as before
   local o = env("other.chan", "STv2|STEP|24000")
   t = setup({ leader = true })
