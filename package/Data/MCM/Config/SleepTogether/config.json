@@ -3,49 +3,45 @@
 	"displayName": "Sleep Together",
 	"minMcmVersion": 9,
 	"cursorFillMode": "topToBottom",
-	"pages": [{
-		"pageDisplayName": "Settings",
-		"cursorFillMode": "topToBottom",
-		"content": [
-			{
-				"text": "Shared sleep",
-				"type": "header"
-			},
-			{
-				"id": "bEnabled:General",
-				"text": "Enable Sleep Together",
-				"type": "toggle",
-				"help": "Link your sleeping with your party's, so everyone sleeps and wakes together.",
-				"valueOptions": {
-					"sourceType": "ModSettingBool"
-				}
-			},
-			{
-				"id": "iWakeHour:General",
-				"text": "Wake hour",
-				"type": "slider",
-				"help": "The game hour (0 to 23) the party wakes up at.",
-				"valueOptions": {
-					"min": 0,
-					"max": 23,
-					"step": 1,
-					"formatString": "{0}:00",
-					"sourceType": "ModSettingInt"
-				}
-			},
-			{
-				"text": "General",
-				"type": "header"
-			},
-			{
-				"id": "bDebug:General",
-				"text": "Debug logging",
-				"type": "toggle",
-				"help": "Write more detail to SleepTogether.log.",
-				"valueOptions": {
-					"sourceType": "ModSettingBool"
-				}
+	"content": [
+		{
+			"text": "Shared sleep",
+			"type": "header"
+		},
+		{
+			"id": "bEnabled:General",
+			"text": "Enable Sleep Together",
+			"type": "toggle",
+			"help": "Link your sleeping with your party's, so everyone sleeps and wakes together.",
+			"valueOptions": {
+				"sourceType": "ModSettingBool"
 			}
-		]
-	}]
+		},
+		{
+			"id": "iWakeHour:General",
+			"text": "Wake hour",
+			"type": "slider",
+			"help": "The game hour (0 to 23) the party wakes up at.",
+			"valueOptions": {
+				"min": 0,
+				"max": 23,
+				"step": 1,
+				"formatString": "{0}:00",
+				"sourceType": "ModSettingInt"
+			}
+		},
+		{
+			"text": "General",
+			"type": "header"
+		},
+		{
+			"id": "bDebug:General",
+			"text": "Debug logging",
+			"type": "toggle",
+			"help": "Write more detail to SleepTogether.log.",
+			"valueOptions": {
+				"sourceType": "ModSettingBool"
+			}
+		}
+	]
 }
