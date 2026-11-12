@@ -1,6 +1,7 @@
 #include "PCH.h"
 #include "StrLink.h"
 
+#include "Effects.h"
 #include "Protocol.h"
 #include "STRPluginMessagingAPI/STRPluginMessagingAPI.h"
 
@@ -12,8 +13,38 @@ namespace SleepTogether::StrLink
         const STRPM::Interface* g_api{ nullptr };
         std::atomic<bool>       g_running{ false };
 
-        // This mod only sends; the server answers through ordinary chat messages.
-        void STRPM_CALL OnMessage(const STRPM::Message*, void*) {}
+        constexpr std::size_t kMaxPayload = 64;
+
+        // Runs on the bridge's dispatcher thread: copy, parse and queue only. The payload buffer is destroyed
+        // when this returns, so nothing from `message` may be kept.
+        void STRPM_CALL OnMessage(const STRPM::Message* message, void*)
+        {
+            if (!message || !message->data || message->size == 0 || message->size > kMaxPayload ||
+                !message->channel || std::string_view(message->channel) != Protocol::kChannel) {
+                return;
+            }
+
+            const std::string payload(static_cast<const char*>(message->data), message->size);
+            const auto        parsed = Protocol::ParseServerMessage(payload);
+            if (!parsed) {
+                spdlog::debug("Ignored message");
+                return;
+            }
+
+            auto* tasks = SKSE::GetTaskInterface();
+            if (!tasks) {
+                return;
+            }
+            const auto kind       = parsed->kind;
+            const auto milliHours = parsed->milliHours;
+            tasks->AddTask([kind, milliHours]() {
+                if (kind == Protocol::ServerKind::kStep) {
+                    Effects::OnStep(milliHours);
+                } else {
+                    Effects::OnDone(milliHours);
+                }
+            });
+        }
     }
 
     bool Start()
