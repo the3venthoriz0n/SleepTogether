@@ -41,7 +41,7 @@ namespace SleepTogether::Core
         const std::vector<std::pair<std::string, std::string>>& members)
     {
         constexpr std::size_t kMaxMembers = 60;
-        constexpr std::size_t kMaxLength  = 2000;
+        constexpr std::size_t kMaxLength  = 4000;
 
         char head[160];
         std::snprintf(head, sizeof(head), "Sleep menu probe: timer=%.2f isSleeping=%d isActive=%d gameHour=%.2f members={",

@@ -30,6 +30,23 @@ namespace SleepTogether::SleepWatch
             return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
         }
 
+        std::string DescribeValue(const RE::GFxValue& value)
+        {
+            if (value.IsNumber()) {
+                char buf[48];
+                std::snprintf(buf, sizeof(buf), "%g", value.GetNumber());
+                return buf;
+            }
+            if (value.IsBool()) {
+                return value.GetBool() ? "true" : "false";
+            }
+            if (value.IsString()) {
+                const char* s = value.GetString();
+                return s ? s : "";
+            }
+            return value.IsObject() ? "<object>" : "<other>";
+        }
+
         // Read-only diagnostic, game thread only: logs what the open Sleep/Wait menu exposes (one line per change).
         void ProbeSleepMenu(RE::UI* ui, bool menuOpen)
         {
@@ -63,27 +80,30 @@ namespace SleepTogether::SleepWatch
             std::vector<std::pair<std::string, std::string>> members;
             if (data.root.IsObject()) {
                 // Plain member enumeration; does not call any ActionScript function.
-                data.root.VisitMembers([&members](const char* name, const RE::GFxValue& value) {
+                std::vector<std::pair<std::string, RE::GFxValue>> nested;
+                data.root.VisitMembers([&members, &nested](const char* name, const RE::GFxValue& value) {
                     if (members.size() > 100 || !name) {
                         return;
                     }
-                    std::string text;
-                    if (value.IsNumber()) {
-                        char buf[48];
-                        std::snprintf(buf, sizeof(buf), "%g", value.GetNumber());
-                        text = buf;
-                    } else if (value.IsBool()) {
-                        text = value.GetBool() ? "true" : "false";
-                    } else if (value.IsString()) {
-                        const char* s = value.GetString();
-                        text          = s ? s : "";
-                    } else if (value.IsObject()) {
-                        text = "<object>";
-                    } else {
-                        text = "<other>";
+                    if (value.IsObject()) {
+                        const std::string n = name;
+                        if (n == "HoursSlider" || n == "HoursText" || n == "CurrentTime") {
+                            nested.emplace_back(n, value);
+                        }
                     }
-                    members.emplace_back(name, std::move(text));
+                    members.emplace_back(name, DescribeValue(value));
                 });
+                // One level deeper for the three members that may hold the chosen hours: name, plus value for
+                // number/string/bool members (objects by name only).
+                for (const auto& [parent, obj] : nested) {
+                    std::size_t count = 0;
+                    obj.VisitMembers([&](const char* name, const RE::GFxValue& value) {
+                        if (++count > 100 || !name) {
+                            return;
+                        }
+                        members.emplace_back(parent + "." + name, DescribeValue(value));
+                    });
+                }
             }
 
             auto snapshot = Core::FormatProbeSnapshot(

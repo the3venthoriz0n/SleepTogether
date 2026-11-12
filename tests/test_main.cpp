@@ -89,7 +89,7 @@ int main()
         CHECK(s.find("m59=v, ...+1 more}") != std::string::npos);
         CHECK(s.find("m60") == std::string::npos);
         Members longMembers{ { "k", std::string(5000, 'z') } };
-        CHECK(Core::FormatProbeSnapshot(0.f, false, false, 0.f, longMembers).size() == 2000);
+        CHECK(Core::FormatProbeSnapshot(0.f, false, false, 0.f, longMembers).size() == 4000);
     }
     CHECK(Core::ShouldLogProbe(false, false, false, 5000, 1000) == false);
     CHECK(Core::ShouldLogProbe(false, true, false, 999, 1000) == false);

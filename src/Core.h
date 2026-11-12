@@ -30,7 +30,7 @@ namespace SleepTogether::Core
 
     // One diagnostic line describing the Sleep/Wait menu: "Sleep menu probe: timer=<f> isSleeping=<0|1>
     // isActive=<0|1> gameHour=<f> members={name=value, ...}". At most 60 members are listed (then
-    // ", ...+<n> more"); the whole line is truncated to 2000 characters.
+    // ", ...+<n> more"); the whole line is truncated to 4000 characters.
     std::string FormatProbeSnapshot(float timer, bool isSleeping, bool isActive, float gameHour,
         const std::vector<std::pair<std::string, std::string>>& members);
 
