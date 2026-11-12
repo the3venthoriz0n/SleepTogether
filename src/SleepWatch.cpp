@@ -161,6 +161,10 @@ namespace SleepTogether::SleepWatch
 
             // Slider value captured while the sleep menu is open and not yet sleeping; forgotten when it closes.
             static std::optional<float> initialSlider;
+            // Most recent slider reading while the menu was open, sleeping-ready and not yet active. HoursSlider._value
+            // counts down once the sleep starts (7.345 at press, 6.345 about a second later, and the countdown may begin
+            // immediately), so the value read on the first active tick can already be below what the player chose.
+            static std::optional<float> lastIdleSlider;
 
             bool                 pressed = false;
             std::optional<float> pressSlider;
@@ -183,22 +187,31 @@ namespace SleepTogether::SleepWatch
                         if (auto menu = ui->GetMenu(RE::SleepWaitMenu::MENU_NAME)) {
                             auto* sleepMenu = static_cast<RE::SleepWaitMenu*>(menu.get());
                             auto& data      = sleepMenu->GetRuntimeData();
-                            if (data.isSleeping && !data.isActive && !initialSlider) {
-                                initialSlider = ReadHoursSlider(sleepMenu);
+                            if (data.isSleeping && !data.isActive) {
+                                const auto reading = ReadHoursSlider(sleepMenu);
+                                if (!initialSlider) {
+                                    initialSlider = reading;
+                                }
+                                if (reading) {
+                                    lastIdleSlider = reading;
+                                }
                             }
                             pressed = Core::IsSleepPressed(true, data.isSleeping, data.isActive);
                             if (pressed) {
-                                pressSlider = ReadHoursSlider(sleepMenu);
+                                pressSlider = Core::PickPressValue(lastIdleSlider, ReadHoursSlider(sleepMenu));
                             }
                         }
                     } else {
                         initialSlider.reset();
+                        lastIdleSlider.reset();
                     }
                 } else {
                     initialSlider.reset();
+                    lastIdleSlider.reset();
                 }
             } else {
                 initialSlider.reset();
+                lastIdleSlider.reset();
             }
 
             if (edge.Update(pressed)) {
@@ -265,7 +278,7 @@ namespace SleepTogether::SleepWatch
         const auto describe = [](const std::optional<float>& v) {
             return v ? fmt::format("{:g}", *v) : std::string("unreadable");
         };
-        spdlog::info("Local sleep started (initial slider {}, at press {}), requested {} {}", describe(initialSlider),
+        spdlog::info("Local sleep started (initial slider {}, last before press {}), requested {} {}", describe(initialSlider),
             describe(pressSlider), request.kind == Protocol::RequestKind::kHours ? "HOURS" : "UNTIL", request.value);
     }
 }

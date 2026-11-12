@@ -24,6 +24,13 @@ namespace SleepTogether::Core
     Protocol::Request DecideRequest(std::optional<float> initialSlider, std::optional<float> pressSlider,
         bool useDefaultWake, int wakeHour);
 
+    // The slider value to treat as "at press": the last reading taken while the menu was idle (not yet sleeping),
+    // because the slider counts down once sleeping starts; the current reading only when there was no idle one.
+    inline std::optional<float> PickPressValue(std::optional<float> lastIdle, std::optional<float> current) noexcept
+    {
+        return lastIdle.has_value() ? lastIdle : current;
+    }
+
     // How much of a stat to restore to reach its maximum: max(0, maximum - current), 0 for non-finite input.
     float StatRestoreAmount(float maximum, float current) noexcept;
 

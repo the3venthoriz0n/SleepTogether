@@ -148,6 +148,10 @@ int main()
     CHECK(Core::ShouldLogProbe(true, true, false, 0, 1000) == true);
     CHECK(Core::ShouldLogProbe(false, false, true, 0, 1000) == true);
     CHECK(Core::ShouldLogProbe(true, false, false, 0, 1000) == true);
+    CHECK(Core::PickPressValue(5.f, 4.2f) == std::optional<float>(5.f));
+    CHECK(Core::PickPressValue(std::nullopt, 4.2f) == std::optional<float>(4.2f));
+    CHECK(!Core::PickPressValue(std::nullopt, std::nullopt).has_value());
+    CHECK(Core::PickPressValue(5.f, std::nullopt) == std::optional<float>(5.f));
     std::puts("All tests passed");
     return 0;
 }
