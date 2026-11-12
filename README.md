@@ -2,7 +2,7 @@
 
 Shared sleeping for Skyrim Together Reborn (STR) parties, for Skyrim Special Edition / Anniversary Edition.
 
-Status: **0.2.0 test build.** It compiles, and its logic tests pass (C++ tests, Lua tests, and a check of the
+Status: **0.2.1 test build.** It compiles, and its logic tests pass (C++ tests, Lua tests, and a check of the
 server's date arithmetic). **It has not been tried in game**, and the patched server it needs has never been built
 or run. See "Known unknowns".
 
@@ -57,7 +57,7 @@ sleep awkward.
 
 ## Install, players
 
-1. Install `SleepTogether-0.2.0.zip` with Vortex (or copy its `Data` folder into your Skyrim `Data` folder).
+1. Install `SleepTogether-0.2.1.zip` with Vortex (or copy its `Data` folder into your Skyrim `Data` folder).
 2. Enable `SleepTogether.esp` in your plugin list. It is a small plugin with one quest, no gameplay: MCM Helper
    only lists a mod whose plugin is loaded.
 3. Settings are in the SkyUI Mod Configuration Menu under "Sleep Together":
@@ -98,7 +98,7 @@ so that clients' dates follow the server's.
 
 ### c) Replace the relay
 
-`SleepTogether-Server-0.2.0.zip` contains a folder `strpm-chat-relay` with `main.lua` and
+`SleepTogether-Server-0.2.1.zip` contains a folder `strpm-chat-relay` with `main.lua` and
 `strpm-chat-relay.manifest`.
 
 1. Make a backup copy of your server's `Resources/strpm-chat-relay` folder.
@@ -241,9 +241,9 @@ interpreter for the server tests.
   `cmake --build out\build-release --config Release --target SleepTogetherTests` then
   `ctest --test-dir out\build-release -C Release --output-on-failure`.
 - Server date arithmetic check: `powershell -File tools\server-verify\run.ps1`.
-- Zips: `make_archive.bat` writes `dist\SleepTogether-0.2.0.zip` (the `Data` folder) and
-  `dist\SleepTogether-Server-0.2.0.zip` (the `strpm-chat-relay` folder). It refuses to run if the DLL lacks the
-  0.2.0 version marker, or if the server relay file lacks the Sleep Together handler.
+- Zips: `make_archive.bat` writes `dist\SleepTogether-0.2.1.zip` (the `Data` folder) and
+  `dist\SleepTogether-Server-0.2.1.zip` (the `strpm-chat-relay` folder). It refuses to run if the DLL lacks the
+  0.2.1 version marker, or if the server relay file lacks the Sleep Together handler.
 
 ## License
 

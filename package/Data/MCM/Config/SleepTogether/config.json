@@ -12,7 +12,7 @@
 			"id": "bEnabled:General",
 			"text": "Enable Sleep Together",
 			"type": "toggle",
-			"help": "Link your sleeping with your party's, so everyone sleeps and wakes together.",
+			"help": "Sleep and wake with your party.",
 			"valueOptions": {
 				"sourceType": "ModSettingBool"
 			}
@@ -21,7 +21,7 @@
 			"id": "iWakeHour:General",
 			"text": "Wake hour",
 			"type": "slider",
-			"help": "The game hour (0 to 23) the party wakes up at.",
+			"help": "Hour the party wakes up (0-23).",
 			"valueOptions": {
 				"min": 0,
 				"max": 23,
@@ -32,18 +32,18 @@
 		},
 		{
 			"id": "bUseDefaultWake:General",
-			"text": "Sleep until the wake-up hour unless I move the slider",
+			"text": "Default: sleep until wake hour",
 			"type": "toggle",
-			"help": "On: if you leave the hours slider alone, everyone sleeps until your wake-up hour. If you move the slider, that many hours pass. Off: always use the slider.",
+			"help": "On: untouched slider sleeps to wake hour. Off: slider only.",
 			"valueOptions": {
 				"sourceType": "ModSettingBool"
 			}
 		},
 		{
 			"id": "bRestoreStats:General",
-			"text": "Restore health, magicka and stamina after a shared sleep",
+			"text": "Restore stats after sleep",
 			"type": "toggle",
-			"help": "Players recover when a shared sleep ends, like after a vanilla sleep.",
+			"help": "Refill health, magicka, stamina on waking.",
 			"valueOptions": {
 				"sourceType": "ModSettingBool"
 			}
@@ -56,7 +56,7 @@
 			"id": "bDebug:General",
 			"text": "Debug logging",
 			"type": "toggle",
-			"help": "Write more detail to SleepTogether.log.",
+			"help": "Extra detail in SleepTogether.log.",
 			"valueOptions": {
 				"sourceType": "ModSettingBool"
 			}
