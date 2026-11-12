@@ -1,0 +1,188 @@
+From 660f2369c57ef9b7ddccb3c1e033a1eee6ff8d6d Mon Sep 17 00:00:00 2001
+From: the3venthoriz0n <11714005+the3venthoriz0n@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 16:30:09 -0800
+Subject: [PATCH 1/3] server: add DateTime::AdvanceHours and HoursUntil with
+ tests
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ Code/common/DateTime.cpp | 24 +++++++++++
+ Code/common/DateTime.h   |  8 ++++
+ Code/tests/datetime.cpp  | 92 ++++++++++++++++++++++++++++++++++++++++
+ Code/tests/xmake.lua     |  2 +
+ 4 files changed, 126 insertions(+)
+ create mode 100644 Code/tests/datetime.cpp
+
+diff --git a/Code/common/DateTime.cpp b/Code/common/DateTime.cpp
+index b091ef61..88c7da32 100644
+--- a/Code/common/DateTime.cpp
++++ b/Code/common/DateTime.cpp
+@@ -16,7 +16,11 @@ uint32_t DateTime::GetNumberOfDaysByMonthIndex(int aIndex)
+ void DateTime::Update(uint64_t aDeltaTick)
+ {
+     m_timeModel.Time += GetDeltaTime(aDeltaTick);
++    Normalize();
++}
+ 
++void DateTime::Normalize() noexcept
++{
+     m_timeModel.Day += static_cast<uint32_t>(m_timeModel.Time / 24.f);
+     m_timeModel.Time = std::fmod(m_timeModel.Time, 24.f);
+ 
+@@ -44,3 +48,23 @@ float DateTime::GetTimeInDays() const noexcept
+     totalDays += (m_timeModel.Time / 24.f);
+     return totalDays;
+ }
++
++void DateTime::AdvanceHours(float aHours) noexcept
++{
++    if (!std::isfinite(aHours) || aHours <= 0.f)
++        return;
++
++    m_timeModel.Time += aHours;
++    Normalize();
++}
++
++float DateTime::HoursUntil(int aHour) const noexcept
++{
++    if (aHour < 0 || aHour > 23)
++        return -1.f;
++
++    float hours = static_cast<float>(aHour) - m_timeModel.Time;
++    if (hours <= 0.f)
++        hours += 24.f;
++    return hours;
++}
+diff --git a/Code/common/DateTime.h b/Code/common/DateTime.h
+index e5e7a758..44de6585 100644
+--- a/Code/common/DateTime.h
++++ b/Code/common/DateTime.h
+@@ -16,6 +16,14 @@ struct DateTime
+     void Update(uint64_t aDeltaTick);
+     float GetDeltaTime(uint64_t aDeltaTick) const noexcept;
+     float GetTimeInDays() const noexcept;
++    // Adds game hours to the clock and carries into day, month and year. Ignores non-finite or non-positive input
++    void AdvanceHours(float aHours) noexcept;
++    // Game hours until the clock next reads aHour:00, 24 if it reads that right now, -1 if aHour is not 0 to 23
++    [[nodiscard]] float HoursUntil(int aHour) const noexcept;
+ 
+     TimeModel m_timeModel;
++
++private:
++    // Carries overflowing hours into day, month and year
++    void Normalize() noexcept;
+ };
+diff --git a/Code/tests/datetime.cpp b/Code/tests/datetime.cpp
+new file mode 100644
+index 00000000..6e7081ef
+--- /dev/null
++++ b/Code/tests/datetime.cpp
+@@ -0,0 +1,92 @@
++#include <catch2/catch.hpp>
++
++#include "../common/DateTime.h"
++
++namespace
++{
++DateTime MakeDateTime(float aTime, uint32_t aDay, uint32_t aMonth, uint32_t aYear = 1)
++{
++    DateTime dateTime;
++    dateTime.m_timeModel.Time = aTime;
++    dateTime.m_timeModel.Day = aDay;
++    dateTime.m_timeModel.Month = aMonth;
++    dateTime.m_timeModel.Year = aYear;
++    return dateTime;
++}
++} // namespace
++
++TEST_CASE("DateTime advances within a day", "[common.datetime]")
++{
++    DateTime dateTime = MakeDateTime(22.5f, 1u, 0u);
++    dateTime.AdvanceHours(1.f);
++
++    REQUIRE(dateTime.m_timeModel.Time == Approx(23.5).margin(1e-4));
++    REQUIRE(dateTime.m_timeModel.Day == 1u);
++}
++
++TEST_CASE("DateTime advance rolls over the day", "[common.datetime]")
++{
++    DateTime dateTime = MakeDateTime(23.f, 1u, 0u);
++    dateTime.AdvanceHours(2.f);
++
++    REQUIRE(dateTime.m_timeModel.Time == Approx(1.0).margin(1e-4));
++    REQUIRE(dateTime.m_timeModel.Day == 2u);
++}
++
++TEST_CASE("DateTime advance rolls over the month", "[common.datetime]")
++{
++    DateTime dateTime = MakeDateTime(23.f, 31u, 0u, 5u);
++    dateTime.AdvanceHours(2.f);
++
++    REQUIRE(dateTime.m_timeModel.Time == Approx(1.0).margin(1e-4));
++    REQUIRE(dateTime.m_timeModel.Day == 1u);
++    REQUIRE(dateTime.m_timeModel.Month == 1u);
++    REQUIRE(dateTime.m_timeModel.Year == 5u);
++}
++
++TEST_CASE("DateTime advance rolls over the year", "[common.datetime]")
++{
++    DateTime dateTime = MakeDateTime(23.f, 31u, 11u, 5u);
++    dateTime.AdvanceHours(2.f);
++
++    REQUIRE(dateTime.m_timeModel.Time == Approx(1.0).margin(1e-4));
++    REQUIRE(dateTime.m_timeModel.Day == 1u);
++    REQUIRE(dateTime.m_timeModel.Month == 0u);
++    REQUIRE(dateTime.m_timeModel.Year == 6u);
++}
++
++TEST_CASE("DateTime advances exactly one day", "[common.datetime]")
++{
++    DateTime dateTime = MakeDateTime(5.f, 3u, 0u);
++    dateTime.AdvanceHours(24.f);
++
++    REQUIRE(dateTime.m_timeModel.Time == Approx(5.0).margin(1e-4));
++    REQUIRE(dateTime.m_timeModel.Day == 4u);
++}
++
++TEST_CASE("DateTime update keeps its behaviour", "[common.datetime]")
++{
++    DateTime fast = MakeDateTime(23.99f, 1u, 0u);
++    fast.m_timeModel.TimeScale = 100.f;
++    fast.Update(1000);
++
++    REQUIRE(fast.m_timeModel.Time == Approx(0.0177).margin(1e-3));
++    REQUIRE(fast.m_timeModel.Day == 2u);
++
++    DateTime normal = MakeDateTime(12.f, 1u, 0u);
++    normal.m_timeModel.TimeScale = 20.f;
++    normal.Update(1000);
++
++    REQUIRE(normal.m_timeModel.Time == Approx(12.00556).margin(1e-4));
++    REQUIRE(normal.m_timeModel.Day == 1u);
++}
++
++TEST_CASE("DateTime hours until a wall clock hour", "[common.datetime]")
++{
++    REQUIRE(MakeDateTime(13.64f, 1u, 0u).HoursUntil(8) == Approx(18.36).margin(1e-3));
++    REQUIRE(MakeDateTime(7.5f, 1u, 0u).HoursUntil(8) == Approx(0.5).margin(1e-3));
++    REQUIRE(MakeDateTime(8.f, 1u, 0u).HoursUntil(8) == 24.f);
++    REQUIRE(MakeDateTime(0.f, 1u, 0u).HoursUntil(0) == 24.f);
++    REQUIRE(MakeDateTime(8.f, 1u, 0u).HoursUntil(24) == -1.f);
++    REQUIRE(MakeDateTime(8.f, 1u, 0u).HoursUntil(-1) == -1.f);
++}
+diff --git a/Code/tests/xmake.lua b/Code/tests/xmake.lua
+index 19abce57..867505ba 100644
+--- a/Code/tests/xmake.lua
++++ b/Code/tests/xmake.lua
+@@ -8,6 +8,8 @@ target("TPTests")
+     add_files("*.cpp")
+     -- Has no game dependencies, so the client's remote playback timing can be tested here
+     add_files("../client/Systems/PlaybackClock.cpp")
++    -- Pure date maths, no game dependencies
++    add_files("../common/DateTime.cpp")
+     add_deps("SkyrimEncoding")
+     add_packages(
+         "tiltedcore",
+-- 
+2.51.2.windows.1
+

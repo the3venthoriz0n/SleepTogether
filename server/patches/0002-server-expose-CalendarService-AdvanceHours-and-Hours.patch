@@ -1,0 +1,100 @@
+From 1ab1f342b8514ef541b1ee5596ef3e1ffbfa91d6 Mon Sep 17 00:00:00 2001
+From: the3venthoriz0n <11714005+the3venthoriz0n@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 16:33:48 -0800
+Subject: [PATCH 2/3] server: expose CalendarService AdvanceHours and
+ HoursUntil to Lua
+
+Compile-risk checklist (no local server build exists):
+- CalendarService::AdvanceHours(float) noexcept / HoursUntil(int) const noexcept:
+  declared Code/server/Services/CalendarService.h lines 39 and 41, defined in
+  CalendarService.cpp with identical signatures (const and noexcept match).
+- m_dateTime: DateTime member, CalendarService.h line 48; not shadowed.
+- DateTime::AdvanceHours(float) noexcept, DateTime::HoursUntil(int) const noexcept:
+  Code/common/DateTime.h lines 20 and 22, public; DateTime.h is included by
+  CalendarService.h line 4.
+- SendTimeResync(): private void noexcept member of CalendarService, callable
+  from AdvanceHours; already used by SetTime/SetDate.
+- std::isfinite: needs <cmath>; added `#include <cmath>` in CalendarService.cpp
+  (floor/ceil were already used unqualified without a direct include).
+- Bindings file includes only GameServer.h -> World.h -> Services/CalendarService.h
+  -> DateTime.h, so CalendarService and DateTime are complete types; the
+  existing get/GetTimeScale bindings already depend on this.
+- Lambdas deduce bool and float unambiguously (single return statement each),
+  same style as CalendarService_Bindings.cpp and PartyService_Bindings.cpp.
+- No clash: the only other CalendarService is Code/client/Services (client
+  build; server xmake globs Code/server/**.cpp only); AdvanceHours/HoursUntil
+  elsewhere appear only in DateTime and its tests.
+- AdvanceHours does not call HandleSetTime (no script re-entry).
+- CRLF line endings and the bindings file BOM preserved; diff is +26 lines.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ .../Services/CalendarService_Bindings.cpp     |  2 ++
+ Code/server/Services/CalendarService.cpp      | 19 +++++++++++++++++++
+ Code/server/Services/CalendarService.h        |  5 +++++
+ 3 files changed, 26 insertions(+)
+
+diff --git a/Code/server/Scripting/Services/CalendarService_Bindings.cpp b/Code/server/Scripting/Services/CalendarService_Bindings.cpp
+index af1c30f0..82d37ff6 100644
+--- a/Code/server/Scripting/Services/CalendarService_Bindings.cpp
++++ b/Code/server/Scripting/Services/CalendarService_Bindings.cpp
+@@ -9,5 +9,7 @@ void CreateCalendarServiceBindings(sol::state_view aState)
+ 
+     calendarType["get"] = []() -> CalendarService& { return GameServer::Get()->GetWorld().GetCalendarService(); };
+     calendarType["GetTimeScale"] = []() { return GameServer::Get()->GetWorld().GetCalendarService().GetTimeScale(); };
++    calendarType["AdvanceHours"] = [](CalendarService& aSelf, float aHours) { return aSelf.AdvanceHours(aHours); };
++    calendarType["HoursUntil"] = [](CalendarService& aSelf, int aHour) { return aSelf.HoursUntil(aHour); };
+ }
+ } // namespace Script
+diff --git a/Code/server/Services/CalendarService.cpp b/Code/server/Services/CalendarService.cpp
+index 7014c285..1b5618db 100644
+--- a/Code/server/Services/CalendarService.cpp
++++ b/Code/server/Services/CalendarService.cpp
+@@ -1,5 +1,7 @@
+ #include <Services/CalendarService.h>
+ 
++#include <cmath>
++
+ #include <GameServer.h>
+ #include <World.h>
+ 
+@@ -150,3 +152,20 @@ bool CalendarService::SetTimeScale(float aScale) noexcept
+ 
+     return false;
+ }
++
++bool CalendarService::AdvanceHours(float aHours) noexcept
++{
++    if (std::isfinite(aHours) && aHours > 0.f && aHours <= 24.f)
++    {
++        m_dateTime.AdvanceHours(aHours);
++        SendTimeResync();
++        return true;
++    }
++
++    return false;
++}
++
++float CalendarService::HoursUntil(int aHour) const noexcept
++{
++    return m_dateTime.HoursUntil(aHour);
++}
+diff --git a/Code/server/Services/CalendarService.h b/Code/server/Services/CalendarService.h
+index 43804904..42e864e0 100644
+--- a/Code/server/Services/CalendarService.h
++++ b/Code/server/Services/CalendarService.h
+@@ -35,6 +35,11 @@ public:
+     float GetTimeScale() const noexcept { return m_dateTime.m_timeModel.TimeScale; }
+     bool SetTimeScale(float aScale) noexcept;
+ 
++    // advances the clock by aHours game hours, 0 < aHours <= 24
++    bool AdvanceHours(float aHours) noexcept;
++    // game hours until the clock reads aHour:00, -1 if aHour is not 0 to 23
++    float HoursUntil(int aHour) const noexcept;
++
+ private:
+     void OnUpdate(const UpdateEvent&) noexcept;
+     void OnPlayerJoin(const PlayerJoinEvent&) noexcept;
+-- 
+2.51.2.windows.1
+
