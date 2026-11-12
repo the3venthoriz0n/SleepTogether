@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -29,29 +30,79 @@ int main()
     CHECK(Core::ResolveWakeHour(std::nanf(""), 8) == 8);
     CHECK(Core::ResolveWakeHour(std::nullopt, 99) == 23);
     CHECK(Core::ResolveWakeHour(std::nullopt, -3) == 0);
-    CHECK(Core::FormatHour(8) == "08:00");
-    CHECK(Core::FormatHour(0) == "00:00");
-    CHECK(Core::AdvanceMessage("Alice", 8) == "[Sleep Together] Alice slept. It is now 08:00.");
     CHECK(Core::DenyMessage() == "[Sleep Together] Only the party leader can advance time.");
+    CHECK(Core::AdvanceMessage("Alice", 8.0f) == "[Sleep Together] Alice slept for 8 hours.");
+    CHECK(Core::AdvanceMessage("Bob", 1.0f) == "[Sleep Together] Bob slept for 1 hour.");
+    CHECK(Core::AdvanceMessage("Bob", 0.2f) == "[Sleep Together] Bob slept for 1 hour.");
+    CHECK(Core::AdvanceMessage("Cy", 18.36f) == "[Sleep Together] Cy slept for 18 hours.");
+    using Protocol::Request;
+    using Protocol::RequestKind;
+    CHECK(Protocol::FormatRequest({ RequestKind::kHours, 7 }) == "STv2|HOURS|7");
+    CHECK(Protocol::FormatRequest({ RequestKind::kUntil, 8 }) == "STv2|UNTIL|8");
+    {
+        const auto expectReq = [](std::string_view text, RequestKind kind, int value) {
+            const auto r = Protocol::ParseRequest(text);
+            return r && r->kind == kind && r->value == value;
+        };
+        CHECK(expectReq("STv2|HOURS|1", RequestKind::kHours, 1));
+        CHECK(expectReq("STv2|HOURS|24", RequestKind::kHours, 24));
+        CHECK(expectReq("STv2|HOURS|07", RequestKind::kHours, 7));
+        CHECK(expectReq("STv2|UNTIL|0", RequestKind::kUntil, 0));
+        CHECK(expectReq("STv2|UNTIL|23", RequestKind::kUntil, 23));
+        for (auto bad : { "STv2|HOURS|0", "STv2|HOURS|25", "STv2|UNTIL|24", "STv2|UNTIL|-1", "STv2|HOURS|",
+                          "STv2|HOURS|8x", "STv2|HOURS|+8", "STv2|HOURS|8 ", "STv1|SLEEP|8", "STv2|SLEEP|8",
+                          "STv2|hours|8", "" })
+            CHECK(!Protocol::ParseRequest(bad));
+        CHECK(!Protocol::ParseRequest(std::string(5000, '8')));
+        CHECK(!Protocol::ParseRequest("STv2|HOURS|" + std::string(22, '0') + "8"));  // 33 characters
+        CHECK(expectReq("STv2|HOURS|" + std::string(20, '0') + "8", RequestKind::kHours, 8));  // 32 characters
+        CHECK(!Protocol::ParseRequest(std::string("STv2|HOURS|8\0", 13)));
+        CHECK(!Protocol::ParseRequest(std::string("STv2|HOURS|\0" "8", 13)));
+    }
+    {
+        using Protocol::ServerKind;
+        const auto expectMsg = [](std::string_view text, ServerKind kind, int milli) {
+            const auto m = Protocol::ParseServerMessage(text);
+            return m && m->kind == kind && m->milliHours == milli;
+        };
+        CHECK(expectMsg("STv2|STEP|1000", ServerKind::kStep, 1000));
+        CHECK(expectMsg("STv2|STEP|24000", ServerKind::kStep, 24000));
+        CHECK(expectMsg("STv2|DONE|0", ServerKind::kDone, 0));
+        CHECK(expectMsg("STv2|DONE|18360", ServerKind::kDone, 18360));
+        CHECK(expectMsg("STv2|DONE|24000", ServerKind::kDone, 24000));
+        CHECK(expectMsg("STv2|STEP|0001000", ServerKind::kStep, 1000));
+        for (auto bad : { "STv2|STEP|0", "STv2|STEP|24001", "STv2|DONE|24001", "STv2|STEP|", "STv2|DONE|",
+                          "STv2|STEP|1e3", "STv2|STEP|-5", "STv2|STEP|+5", "STv2|STEP|5 ", "STv2|HOURS|3", "" })
+            CHECK(!Protocol::ParseServerMessage(bad));
+        CHECK(!Protocol::ParseServerMessage(std::string(5000, '1')));
+        CHECK(!Protocol::ParseServerMessage("STv2|STEP|" + std::string(23, '0') + "1"));  // 34 characters
+        CHECK(!Protocol::ParseServerMessage("STv2|DONE|" + std::string(23, '0')));
+        CHECK(!Protocol::ParseServerMessage(std::string("STv2|STEP|1\0", 12)));
+    }
+    {
+        const float nan = std::nanf("");
+        const auto  same = [](Request r, RequestKind kind, int value) { return r.kind == kind && r.value == value; };
+        CHECK(same(Core::DecideRequest(18.f, 18.f, true, 8), RequestKind::kUntil, 8));
+        CHECK(same(Core::DecideRequest(1.f, 7.345f, true, 8), RequestKind::kHours, 7));
+        CHECK(same(Core::DecideRequest(1.f, 1.f, false, 8), RequestKind::kHours, 1));
+        CHECK(same(Core::DecideRequest(1.f, 7.5f, true, 8), RequestKind::kHours, 8));
+        CHECK(same(Core::DecideRequest(1.f, 30.f, true, 8), RequestKind::kHours, 24));
+        CHECK(same(Core::DecideRequest(1.f, 0.2f, true, 8), RequestKind::kHours, 1));
+        CHECK(same(Core::DecideRequest(1.f, nan, false, 8), RequestKind::kUntil, 8));
+        CHECK(same(Core::DecideRequest(1.f, std::nullopt, false, 8), RequestKind::kUntil, 8));
+        CHECK(same(Core::DecideRequest(1.f, nan, true, 8), RequestKind::kUntil, 8));
+        CHECK(same(Core::DecideRequest(std::nullopt, 7.f, true, 8), RequestKind::kUntil, 8));
+        CHECK(same(Core::DecideRequest(std::nullopt, 7.f, false, 8), RequestKind::kHours, 7));
+        CHECK(same(Core::DecideRequest(18.f, 18.f, true, 99), RequestKind::kUntil, 23));
+        CHECK(same(Core::DecideRequest(18.f, 18.f, true, -3), RequestKind::kUntil, 0));
+    }
+    CHECK(Core::StatRestoreAmount(100.f, 40.f) == 60.f);
+    CHECK(Core::StatRestoreAmount(100.f, 100.f) == 0.f);
+    CHECK(Core::StatRestoreAmount(100.f, 120.f) == 0.f);
+    CHECK(Core::StatRestoreAmount(std::nanf(""), 40.f) == 0.f);
+    CHECK(Core::StatRestoreAmount(100.f, std::nanf("")) == 0.f);
+    CHECK(Core::StatRestoreAmount(-5.f, 0.f) == 0.f);
     CHECK(std::string(Protocol::kChannel) == "sleeptogether.v1");
-    CHECK(Protocol::FormatSleepRequest(8) == "STv1|SLEEP|8");
-    CHECK(Protocol::ParseSleepRequest("STv1|SLEEP|8") == 8);
-    CHECK(Protocol::ParseSleepRequest("STv1|SLEEP|0") == 0);
-    CHECK(Protocol::ParseSleepRequest("STv1|SLEEP|23") == 23);
-    CHECK(Protocol::ParseSleepRequest("STv1|SLEEP|08") == 8);
-    for (int h = 0; h < 24; ++h)
-        CHECK(Protocol::ParseSleepRequest(Protocol::FormatSleepRequest(h)) == h);
-    for (auto bad : {"STv1|SLEEP|24", "STv1|SLEEP|-1", "STv1|SLEEP|", "STv1|SLEEP|8x",
-                     "STv2|SLEEP|8", "", "STv1|SLEEP|08 ", "hello", "STv1|SLEEP|+8",
-                     " STv1|SLEEP|8", "STv1|SLEEP|8\n", "STv1|SLEEP|8|", "stv1|SLEEP|8",
-                     "STv1|SLEEP|99999999999999999999", "STv1|SLEEP|\xD9\xA8"})
-        CHECK(!Protocol::ParseSleepRequest(bad));
-    CHECK(!Protocol::ParseSleepRequest(std::string("STv1|SLEEP|8\0", 13)));
-    CHECK(!Protocol::ParseSleepRequest(std::string("STv1|SLEEP|\0" "8", 13)));
-    CHECK(!Protocol::ParseSleepRequest(std::string(5000, '8')));
-    CHECK(!Protocol::ParseSleepRequest("STv1|SLEEP|" + std::string(21, '0') + "8"));
-    CHECK(Protocol::ParseSleepRequest("STv1|SLEEP|" + std::string(20, '0') + "8") == 8);
-    CHECK(!Protocol::ParseSleepRequest("STv1|SLEEP|" + std::string(22, '0')));
     for (int bits = 0; bits < 8; ++bits) {
         const bool open = (bits & 4) != 0, sleeping = (bits & 2) != 0, active = (bits & 1) != 0;
         CHECK(Core::IsSleepPressed(open, sleeping, active) == (bits == 7));

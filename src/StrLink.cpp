@@ -47,7 +47,7 @@ namespace SleepTogether::StrLink
             return false;
         }
 
-        const std::string   payload = Protocol::FormatSleepRequest(hour);
+        const std::string   payload = Protocol::FormatRequest({ Protocol::RequestKind::kUntil, hour });  // temporary until Task 7
         const STRPM::Target server{ STRPM::TargetKind::kServer, 0, nullptr };
 
         constexpr auto flags = STRPM::kMessageReliable | STRPM::kMessageOrdered;

@@ -15,20 +15,43 @@ namespace SleepTogether::Core
         return std::clamp(fallbackHour, 0, 23);
     }
 
-    std::string FormatHour(int hour)
+    Protocol::Request DecideRequest(std::optional<float> initialSlider, std::optional<float> pressSlider,
+        bool useDefaultWake, int wakeHour)
     {
-        char buf[16];
-        std::snprintf(buf, sizeof(buf), "%02d:00", std::clamp(hour, 0, 23));
-        return buf;
+        const Protocol::Request until{ Protocol::RequestKind::kUntil, std::clamp(wakeHour, 0, 23) };
+        if (!pressSlider || !std::isfinite(*pressSlider)) {
+            return until;
+        }
+
+        const float press = std::clamp(*pressSlider, 0.0f, 24.0f);
+        const Protocol::Request hours{ Protocol::RequestKind::kHours,
+            std::clamp(static_cast<int>(std::floor(press + 0.5f)), 1, 24) };
+        if (!useDefaultWake) {
+            return hours;
+        }
+        if (!initialSlider || !std::isfinite(*initialSlider)) {
+            return until;
+        }
+        const bool explicitChoice = std::fabs(static_cast<double>(*pressSlider) - static_cast<double>(*initialSlider)) > 0.001;
+        return explicitChoice ? hours : until;
     }
 
-    std::string AdvanceMessage(std::string_view leaderName, int hour)
+    float StatRestoreAmount(float maximum, float current) noexcept
     {
+        if (!std::isfinite(maximum) || !std::isfinite(current)) {
+            return 0.0f;
+        }
+        return std::max(0.0f, maximum - current);
+    }
+
+    std::string AdvanceMessage(std::string_view name, float hours)
+    {
+        const int n = std::isfinite(hours) ? std::max(1, static_cast<int>(std::lround(std::clamp(hours, 0.0f, 24000.0f)))) : 1;
         std::string msg = "[Sleep Together] ";
-        msg += leaderName;
-        msg += " slept. It is now ";
-        msg += FormatHour(hour);
-        msg += ".";
+        msg += name;
+        msg += " slept for ";
+        msg += std::to_string(n);
+        msg += n == 1 ? " hour." : " hours.";
         return msg;
     }
 

@@ -7,16 +7,28 @@
 #include <utility>
 #include <vector>
 
+#include "Protocol.h"
+
 namespace SleepTogether::Core
 {
     // Whole wake-up hour in [0, 23]. A chosen end hour is rounded to the nearest hour (24 wraps to 0);
     // a missing, NaN or out-of-range [0, 24) value falls back to fallbackHour clamped to [0, 23].
     int ResolveWakeHour(std::optional<float> chosenEndHour, int fallbackHour);
 
-    // "HH:00"
-    std::string FormatHour(int hour);
+    // Decides what to ask the server for from the Sleep/Wait menu sliders. initialSlider is the slider value when
+    // the menu opened, pressSlider the value when Sleep was pressed (nullopt or non-finite: unreadable).
+    // An explicit choice (press differs from initial by more than 0.001) or a disabled default gives
+    // kHours (round-half-up of the press value, clamped to [1, 24]); otherwise kUntil with wakeHour clamped to
+    // [0, 23]. An unreadable press value, or an unreadable initial value while the default is enabled (it cannot
+    // be told whether the player moved the slider), also gives kUntil.
+    Protocol::Request DecideRequest(std::optional<float> initialSlider, std::optional<float> pressSlider,
+        bool useDefaultWake, int wakeHour);
 
-    std::string AdvanceMessage(std::string_view leaderName, int hour);
+    // How much of a stat to restore to reach its maximum: max(0, maximum - current), 0 for non-finite input.
+    float StatRestoreAmount(float maximum, float current) noexcept;
+
+    // "[Sleep Together] <name> slept for <n> hour(s)." n = nearest whole hour, at least 1.
+    std::string AdvanceMessage(std::string_view name, float hours);
 
     std::string DenyMessage();
 
