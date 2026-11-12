@@ -2,31 +2,46 @@
 package.path = "server/sleeptogether/?.lua;" .. package.path
 local logic = require("logic")
 
-local P = "STv1|SLEEP|"
-assert(logic.parse_request(P .. "8") == 8)
-assert(logic.parse_request(P .. "0") == 0)
-assert(logic.parse_request(P .. "23") == 23)
-assert(logic.parse_request(P .. "08") == 8)
-for h = 0, 23 do
-  assert(logic.parse_request(P .. tostring(h)) == h)
+-- request parsing: twins of the C++ ParseRequest vectors in tests/test_main.cpp
+local function expect_req(text, kind, value)
+  local k, v = logic.parse_request(text)
+  assert(k == kind and v == value, tostring(text))
 end
+local function reject_req(text)
+  assert(logic.parse_request(text) == nil, tostring(text))
+end
+expect_req("STv2|HOURS|1", "HOURS", 1)
+expect_req("STv2|HOURS|24", "HOURS", 24)
+expect_req("STv2|HOURS|07", "HOURS", 7)
+expect_req("STv2|UNTIL|0", "UNTIL", 0)
+expect_req("STv2|UNTIL|23", "UNTIL", 23)
+for h = 1, 24 do expect_req("STv2|HOURS|" .. h, "HOURS", h) end
+for h = 0, 23 do expect_req("STv2|UNTIL|" .. h, "UNTIL", h) end
 for _, bad in ipairs({
-  "STv1|SLEEP|24", "STv1|SLEEP|-1", "STv1|SLEEP|", "STv1|SLEEP|8x",
-  "STv2|SLEEP|8", "", "STv1|SLEEP|08 ", "hello", "STv1|SLEEP|+8",
-  " STv1|SLEEP|8", "STv1|SLEEP|8\n", "STv1|SLEEP|8|", "stv1|SLEEP|8",
-  "STv1|SLEEP|99999999999999999999", "STv1|SLEEP|\xD9\xA8",
-  "STv1|SLEEP|8\0", "STv1|SLEEP|\0" .. "8",
-  string.rep("8", 5000),
-  P .. string.rep("0", 21) .. "8",
-  P .. string.rep("0", 22),
+  "STv2|HOURS|0", "STv2|HOURS|25", "STv2|UNTIL|24", "STv2|UNTIL|-1", "STv2|HOURS|",
+  "STv2|HOURS|8x", "STv2|HOURS|+8", "STv2|HOURS|8 ", "STv1|SLEEP|8", "STv2|SLEEP|8",
+  "STv2|hours|8", "", "STv2|HOURS|8\n", " STv2|HOURS|8", "STv2|UNTIL|8|",
+  "STv2|HOURS|99999999999999999999", "STv2|HOURS|\xD9\xA8",
 }) do
-  assert(logic.parse_request(bad) == nil, bad)
+  reject_req(bad)
 end
-assert(logic.parse_request(P .. string.rep("0", 20) .. "8") == 8)
-assert(logic.parse_request(nil) == nil)
-assert(logic.parse_request(8) == nil)
+reject_req(string.rep("8", 5000))
+reject_req("STv2|HOURS|" .. string.rep("0", 22) .. "8")  -- 34 characters
+reject_req("STv2|HOURS|" .. string.rep("0", 21) .. "8")  -- 33 characters
+expect_req("STv2|HOURS|" .. string.rep("0", 20) .. "8", "HOURS", 8)  -- 32 characters
+reject_req("STv2|HOURS|8\0")
+reject_req("STv2|HOURS|\0" .. "8")
+reject_req("STv2|UNTIL|8\0")
+reject_req(nil)
+reject_req(8)
 
--- envelopes
+-- payloads
+assert(logic.payload_step(1000) == "STv2|STEP|1000")
+assert(logic.payload_done(18360) == "STv2|DONE|18360")
+assert(logic.payload_step(1000.4) == "STv2|STEP|1000")
+assert(logic.payload_step(999.6) == "STv2|STEP|1000")
+
+-- envelopes (decode)
 local function hex(s)
   return (s:gsub(".", function(c) return string.format("%02X", c:byte()) end))
 end
@@ -34,10 +49,10 @@ local function env(channel, payload, part, parts, extra)
   return "STRPM|v2|msg=abc|seq=1|channel=" .. channel .. "|payload=" .. payload ..
     "|flags=0|part=" .. part .. "|parts=" .. parts .. "|target=server" .. (extra or "")
 end
-local ch, pl = logic.decode_envelope(env("sleeptogether.v1", hex("STv1|SLEEP|8"), 1, 1))
-assert(ch == "sleeptogether.v1" and pl == "STv1|SLEEP|8")
-assert(logic.decode_envelope(env("sleeptogether.v1", hex("STv1|SLEEP|8"), 1, 2)) == nil)
-assert(logic.decode_envelope(env("sleeptogether.v1", hex("STv1|SLEEP|8"), 2, 2)) == nil)
+local ch, pl = logic.decode_envelope(env("sleeptogether.v1", hex("STv2|HOURS|8"), 1, 1))
+assert(ch == "sleeptogether.v1" and pl == "STv2|HOURS|8")
+assert(logic.decode_envelope(env("sleeptogether.v1", hex("STv2|HOURS|8"), 1, 2)) == nil)
+assert(logic.decode_envelope(env("sleeptogether.v1", hex("STv2|HOURS|8"), 2, 2)) == nil)
 assert(logic.decode_envelope(env("sleeptogether.v1", "ABC", 1, 1)) == nil)
 assert(logic.decode_envelope(env("sleeptogether.v1", "ZZ", 1, 1)) == nil)
 assert(logic.decode_envelope("STRPM|v2|msg=a|seq=1|payload=41|part=1|parts=1") == nil)
@@ -47,21 +62,138 @@ assert(logic.decode_envelope("hello") == nil)
 assert(logic.decode_envelope("") == nil)
 assert(logic.decode_envelope(nil) == nil)
 assert(logic.decode_envelope(string.rep("A", 5000)) == nil)
-assert(logic.decode_envelope(env("sleeptogether.v1", hex("STv1|SLEEP|8"), 1, 1) .. string.rep("x", 5000)) == nil)
+assert(logic.decode_envelope(env("sleeptogether.v1", hex("STv2|HOURS|8"), 1, 1) .. string.rep("x", 5000)) == nil)
+
+-- client bridge reimplementation (STRPluginMessagingBridgeReceive.cpp AddFragment)
+local function read_field(packet, key)
+  local start = 1
+  while start <= #packet + 1 do
+    local stop = string.find(packet, "|", start, true) or (#packet + 1)
+    local token = string.sub(packet, start, stop - 1)
+    if #token > #key and string.sub(token, 1, #key) == key and string.sub(token, #key + 1, #key + 1) == "=" then
+      return string.sub(token, #key + 2)
+    end
+    if stop == #packet + 1 then break end
+    start = stop + 1
+  end
+  return nil
+end
+local function parse_unsigned(text)
+  if text == nil or not string.match(text, "^%d+$") then return nil end
+  return math.tointeger(tonumber(text))
+end
+local function hex_decode(text)
+  if #text % 2 ~= 0 or string.find(text, "[^0-9A-Fa-f]") then return nil end
+  return (string.gsub(text, "%x%x", function(h) return string.char(tonumber(h, 16)) end))
+end
+-- returns payload text, sender id; or nil when the bridge would drop it
+local function bridge_accept(envelope)
+  local f = {}
+  for _, k in ipairs({ "msg", "channel", "sender", "seq", "flags", "part", "parts", "payload" }) do
+    f[k] = read_field(envelope, k)
+    if f[k] == nil then return nil end
+  end
+  local sender, seq, flags = parse_unsigned(f.sender), parse_unsigned(f.seq), parse_unsigned(f.flags)
+  local part, parts = parse_unsigned(f.part), parse_unsigned(f.parts)
+  if not (sender and seq and flags and part and parts) then return nil end
+  if sender == 0 or part == 0 or parts == 0 or part > parts or f.channel == "" then return nil end
+  local text = hex_decode(f.payload)
+  if text == nil then return nil end
+  return text, sender
+end
+
+local built = logic.build_envelope("sleeptogether.v1", 7, "m1", 42, 9, "Alice", "STv2|STEP|1000", 123456)
+assert(built == "STRPM|v2|msg=m1|seq=7|channel=sleeptogether.v1|target=all|flags=0|part=1|parts=1|payload="
+  .. hex("STv2|STEP|1000") .. "|sender=42|senderPlayerId=9|senderName=Alice|serverTick=123456", built)
+local btext, bsender = bridge_accept(built)
+assert(btext == "STv2|STEP|1000" and bsender == 42)
+local dch, dpl = logic.decode_envelope(built)
+assert(dch == "sleeptogether.v1" and dpl == "STv2|STEP|1000")
+-- the validator itself must reject bad input (sender 0, odd hex, missing sender)
+assert(bridge_accept(logic.build_envelope("sleeptogether.v1", 7, "m1", 0, 9, "Alice", "x", 1)) == nil)
+assert(bridge_accept((built:gsub("payload=%x+", "payload=ABC"))) == nil)
+assert(bridge_accept((built:gsub("sender=42", "sender="))) == nil)
+assert(logic.build_envelope("sleeptogether.v1", 7, "m2", 42, 9, "Alice", "x", 1)
+  ~= logic.build_envelope("sleeptogether.v1", 7, "m1", 42, 9, "Alice", "x", 1))
+local nasty = logic.build_envelope("sleeptogether.v1", 1, "m", 5, 6, "A|b=c<d>e\r\nf", "x", 1)
+assert(string.find(nasty, "|senderName=A_b_c_d_e__f|serverTick=1", 1, true), nasty)
+assert(not string.find(nasty, "[\r\n<>]"))
+assert(read_field(nasty, "senderName") == "A_b_c_d_e__f")
+assert(bridge_accept(nasty) == "x")
 
 -- messages
-assert(logic.format_hour(8) == "08:00")
-assert(logic.format_hour(0) == "00:00")
-assert(logic.format_hour(23) == "23:00")
-assert(logic.advance_message("Alice", 8) == "[Sleep Together] Alice slept. It is now 08:00.")
+assert(logic.format_hour == nil)
+assert(logic.advance_message("Alice", 8) == "[Sleep Together] Alice slept for 8 hours.")
+assert(logic.advance_message("Bob", 1) == "[Sleep Together] Bob slept for 1 hour.")
+assert(logic.advance_message("Bob", 0.2) == "[Sleep Together] Bob slept for 1 hour.")
+assert(logic.advance_message("Cy", 18.36) == "[Sleep Together] Cy slept for 18 hours.")
 assert(logic.deny_message() == "[Sleep Together] Only the party leader can advance time.")
 
--- decisions
-assert(logic.decide(true, 3, 8, 10000, 0).kind == "advance")
-assert(logic.decide(true, 3, 8, 10000, 0).hour == 8)
-assert(logic.decide(false, 3, 8, 10000, 0).reason == "not_leader")
-assert(logic.decide(false, 1, 8, 10000, 0).kind == "advance")
-assert(logic.decide(true, 3, nil, 10000, 0).reason == "bad_request")
-assert(logic.decide(true, 3, 8, 12000, 10000).reason == "rate_limited")
-assert(logic.decide(true, 3, 8, 15001, 10000).kind == "advance")
-assert(logic.decide(true, 3, 8, 100, nil).kind == "advance")
+-- decisions: decide(isLeader, playerCount, nowMs, lastAdvanceMs, busy)
+assert(logic.decide(true, 3, 10000, 0, false).kind == "advance")
+assert(logic.decide(false, 3, 10000, 0, false).reason == "not_leader")
+assert(logic.decide(false, 1, 10000, 0, false).kind == "advance")
+assert(logic.decide(true, 3, 12000, 10000, false).reason == "rate_limited")
+assert(logic.decide(true, 3, 15001, 10000, false).kind == "advance")
+assert(logic.decide(true, 3, 20000, 0, true).reason == "busy")
+assert(logic.decide(true, 3, 12000, 10000, true).reason == "busy")
+assert(logic.decide(true, 3, 100, nil, false).kind == "advance")
+
+-- session pacing (integer milli-hours)
+local function same(a, ...)
+  local e = { ... }
+  assert(#a == #e, #a .. " steps")
+  for i = 1, #e do assert(a[i] == e[i] and math.type(a[i]) == "integer", i) end
+end
+do
+  local s = logic.new_session(3)
+  local steps, fin = logic.session_tick(s, 0.5)
+  same(steps); assert(fin == false)
+  steps, fin = logic.session_tick(s, 0.5)
+  same(steps, 1000); assert(fin == false)
+  steps, fin = logic.session_tick(s, 2.0)
+  same(steps, 1000, 1000); assert(fin == true)
+  steps, fin = logic.session_tick(s, 5)
+  same(steps); assert(fin == true)
+end
+do
+  local s = logic.new_session(0.35)
+  local steps, fin = logic.session_tick(s, 0.35)
+  same(steps, 350); assert(fin == true)
+end
+do
+  local s = logic.new_session(2)
+  local steps, fin = logic.session_tick(s, 10)
+  same(steps, 1000, 1000); assert(fin == true)
+end
+do
+  local s = logic.new_session(2)
+  for _, d in ipairs({ 0, -1, 0 / 0, math.huge, -math.huge }) do
+    local steps, fin = logic.session_tick(s, d)
+    same(steps); assert(fin == false)
+  end
+  same((logic.session_tick(s, 1)), 1000)
+end
+do -- many small ticks: total preserved, no float drift
+  local s = logic.new_session(2.5)
+  local sum, n, fin = 0, 0, false
+  while not fin and n < 1000 do
+    local steps
+    steps, fin = logic.session_tick(s, 0.1)
+    for _, v in ipairs(steps) do sum = sum + v end
+    n = n + 1
+  end
+  assert(fin and sum == 2500 and n >= 25 and n <= 26, sum .. " " .. n)
+end
+do
+  local s = logic.new_session(18.36)
+  local steps, fin = logic.session_tick(s, 100)
+  local sum = 0
+  for _, v in ipairs(steps) do sum = sum + v end
+  assert(fin and sum == 18360 and steps[#steps] == 360 and #steps == 19)
+end
+do
+  local s = logic.new_session(0)
+  local steps, fin = logic.session_tick(s, 1)
+  same(steps); assert(fin == true)
+end
