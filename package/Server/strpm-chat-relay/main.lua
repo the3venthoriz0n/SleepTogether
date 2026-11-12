@@ -1,6 +1,8 @@
 -- GENERATED FILE: do not edit. Built by tools/build_server_resource.py from the
 -- upstream strpm-chat-relay 0.4.0 (server/upstream/strpm-chat-relay/main.lua) plus
--- server/sleeptogether/{logic,handler}.lua. Edit those sources, not this output.
+-- server/sleeptogether/{logic,handler}.lua. Additions: the embedded Sleep Together
+-- block (with an onUpdate registration) and a two-line hook in onChatMessage that
+-- stops relaying handled sleeptogether.v1 envelopes. Edit those sources, not this output.
 
 -- STR Plugin Messaging chat relay for unmodified Skyrim Together servers.
 --
@@ -25,36 +27,65 @@ local SleepTogetherLogic = (function()
 
 local logic = {}
 
-local SLEEP_PREFIX = "STv1|SLEEP|"
+local HOURS_PREFIX = "STv2|HOURS|"
+local UNTIL_PREFIX = "STv2|UNTIL|"
+local STEP_PREFIX = "STv2|STEP|"
+local DONE_PREFIX = "STv2|DONE|"
 local MAX_REQUEST_LENGTH = 32
 local MAX_ENVELOPE_LENGTH = 4096
 local RATE_LIMIT_MS = 5000
+local MAX_MILLI_HOURS = 24000
+local EPSILON = 1e-6
 
--- Mirrors Protocol::ParseSleepRequest. Leading zeros are accepted (within the
--- length cap); anything else that is not a plain ASCII number 0..23 is nil.
-function logic.parse_request(text)
-  if type(text) ~= "string" or #text > MAX_REQUEST_LENGTH then
-    return nil
-  end
-  if string.sub(text, 1, #SLEEP_PREFIX) ~= SLEEP_PREFIX then
-    return nil
-  end
-  local digits = string.sub(text, #SLEEP_PREFIX + 1)
+-- Decimal digits only (any other byte, NUL included, rejects), non-empty,
+-- value <= maxValue. Returns an integer or nil.
+local function parse_number(digits, maxValue)
   if #digits == 0 then
     return nil
   end
-  local hour = 0
+  local value = 0
   for i = 1, #digits do
     local b = string.byte(digits, i)
     if b < 48 or b > 57 then
       return nil
     end
-    hour = hour * 10 + (b - 48)
-    if hour > 23 then
+    value = value * 10 + (b - 48)
+    if value > maxValue then
       return nil
     end
   end
-  return hour
+  return value
+end
+
+-- Mirrors Protocol::ParseRequest. Returns "HOURS", 1..24 or "UNTIL", 0..23; else nil.
+function logic.parse_request(text)
+  if type(text) ~= "string" or #text > MAX_REQUEST_LENGTH then
+    return nil
+  end
+  if string.sub(text, 1, #HOURS_PREFIX) == HOURS_PREFIX then
+    local n = parse_number(string.sub(text, #HOURS_PREFIX + 1), 24)
+    if n and n >= 1 then
+      return "HOURS", n
+    end
+  elseif string.sub(text, 1, #UNTIL_PREFIX) == UNTIL_PREFIX then
+    local h = parse_number(string.sub(text, #UNTIL_PREFIX + 1), 23)
+    if h then
+      return "UNTIL", h
+    end
+  end
+  return nil
+end
+
+local function round(x)
+  return math.floor(x + 0.5)
+end
+
+function logic.payload_step(milliHours)
+  return STEP_PREFIX .. string.format("%d", round(milliHours))
+end
+
+function logic.payload_done(milliHours)
+  return DONE_PREFIX .. string.format("%d", round(milliHours))
 end
 
 local function split_fields(envelope)
@@ -93,98 +124,271 @@ function logic.decode_envelope(message)
   return channel, decoded
 end
 
-function logic.format_hour(hour)
-  if hour < 0 then hour = 0 elseif hour > 23 then hour = 23 end
-  return string.format("%02d:00", hour)
+local function hex_encode(text)
+  return (string.gsub(text, ".", function(c)
+    return string.format("%02X", string.byte(c))
+  end))
 end
 
-function logic.advance_message(leaderName, hour)
-  return "[Sleep Together] " .. leaderName .. " slept. It is now " .. logic.format_hour(hour) .. "."
+-- The chat binding strips angle brackets and the field parser splits on | and =.
+local function sanitise(name)
+  return (string.gsub(tostring(name or ""), "[|<>=\r\n]", "_"))
+end
+
+-- Builds the relayed STRPM v2 envelope the client bridge accepts. The sender
+-- connection id must be numeric and nonzero or the bridge drops the message.
+function logic.build_envelope(channel, seq, msgid, senderConnectionId, senderPlayerId, senderName, payloadText, tick)
+  return "STRPM|v2|msg=" .. tostring(msgid) ..
+    "|seq=" .. string.format("%d", seq) ..
+    "|channel=" .. channel ..
+    "|target=all|flags=0|part=1|parts=1" ..
+    "|payload=" .. hex_encode(payloadText) ..
+    "|sender=" .. string.format("%d", senderConnectionId) ..
+    "|senderPlayerId=" .. string.format("%d", senderPlayerId) ..
+    "|senderName=" .. sanitise(senderName) ..
+    "|serverTick=" .. string.format("%d", tick)
+end
+
+-- Mirrors Core::AdvanceMessage: whole hours, at least 1.
+function logic.advance_message(name, hours)
+  local n = 1
+  if type(hours) == "number" and hours == hours and hours ~= math.huge and hours ~= -math.huge then
+    n = math.max(1, round(math.min(math.max(hours, 0), MAX_MILLI_HOURS)))
+  end
+  return "[Sleep Together] " .. name .. " slept for " .. string.format("%d", n) ..
+    (n == 1 and " hour." or " hours.")
 end
 
 function logic.deny_message()
   return "[Sleep Together] Only the party leader can advance time."
 end
 
--- lastAdvanceMs may be nil (no advance yet).
-function logic.decide(isLeader, playerCount, hour, nowMs, lastAdvanceMs)
-  if hour == nil then
-    return { kind = "deny", reason = "bad_request" }
-  end
+-- lastAdvanceMs may be nil (no advance yet). Busy beats rate limit.
+function logic.decide(isLeader, playerCount, nowMs, lastAdvanceMs, busy)
   if not isLeader and playerCount ~= 1 then
     return { kind = "deny", reason = "not_leader" }
+  end
+  if busy then
+    return { kind = "deny", reason = "busy" }
   end
   if lastAdvanceMs ~= nil and nowMs - lastAdvanceMs < RATE_LIMIT_MS then
     return { kind = "deny", reason = "rate_limited" }
   end
-  return { kind = "advance", hour = hour }
+  return { kind = "advance" }
+end
+
+-- One game hour per real second. State is kept in integer milli-hours plus the
+-- accumulated milli-seconds, so no float equality is needed on the totals.
+function logic.new_session(totalHours)
+  local total = 0
+  if type(totalHours) == "number" and totalHours == totalHours and totalHours > 0 and totalHours ~= math.huge then
+    total = math.min(round(totalHours * 1000), MAX_MILLI_HOURS)
+  end
+  return { remaining = total, accumulated = 0.0 }
+end
+
+function logic.session_tick(session, deltaSeconds)
+  local steps = {}
+  if session.remaining <= 0 then
+    return steps, true
+  end
+  if type(deltaSeconds) ~= "number" or deltaSeconds ~= deltaSeconds
+      or deltaSeconds <= 0 or deltaSeconds == math.huge then
+    return steps, false
+  end
+  session.accumulated = session.accumulated + deltaSeconds * 1000
+  while session.remaining > 0 do
+    local step = math.min(1000, session.remaining)
+    if session.accumulated + EPSILON < step then
+      break
+    end
+    session.accumulated = session.accumulated - step
+    session.remaining = session.remaining - step
+    steps[#steps + 1] = step
+  end
+  if session.remaining <= 0 then
+    session.accumulated = 0.0
+    return steps, true
+  end
+  return steps, false
 end
 
 return logic
 
 end)()
-local SleepTogetherHandler = (function()
--- Sleep Together request handler. Embedded into the STRPM relay by
--- tools/build_server_resource.py and called by the relay for every validated
--- envelope, with the authenticated sender. Never calls cancelEvent (the relay
--- owns that) and never raises.
+local SleepTogetherCalendar = (function()
+  local ok, calendar = pcall(function() return CalendarService:get() end)
+  if ok then return calendar end
+  return nil
+end)()
+local SleepTogetherHandler, SleepTogetherTick = (function()
+-- Sleep Together request handler and session driver. Embedded into the STRPM
+-- relay by tools/build_server_resource.py. The relay calls `handle` for every
+-- validated envelope with the authenticated sender, and the server calls `tick`
+-- from the onUpdate event (argument: seconds since the last update). Never calls
+-- cancelEvent (the relay owns that) and never raises.
+--
+-- Returns two functions: handle(player, fields, message) -> true when the
+-- envelope is on our channel (handled, must not be relayed), false otherwise;
+-- and tick(deltaSeconds).
 
-return function(logic, gameServer, playerManager)
+return function(logic, gameServer, playerManager, calendar)
   local CHANNEL = "sleeptogether.v1"
-  local DEFAULT_TIME_SCALE = 20 -- STR default TimeModel.TimeScale
   local lastAdvanceMs = nil
+  local session = nil -- { state, total, connId, playerId, name }
+  local counter = 0
 
-  local function timeScale()
-    local ok, value = pcall(function() return CalendarService:get():GetTimeScale() end)
+  local function log(text)
+    print("[SleepTogether] " .. text)
+  end
+
+  local function now_ms()
+    local ok, value = pcall(function() return gameServer:GetTick() end)
     if ok and type(value) == "number" then
       return value
     end
-    return DEFAULT_TIME_SCALE
+    return 0
+  end
+
+  local function player_count()
+    -- Count with ipairs exactly like the relay does; `#` on the sol2 container is unproven.
+    local count = 0
+    for _ in ipairs(playerManager:GetAllPlayers()) do
+      count = count + 1
+    end
+    return count
+  end
+
+  local function broadcast(payloadText)
+    counter = counter + 1
+    local envelope = logic.build_envelope(
+      CHANNEL, counter, "sleeptogether-" .. counter,
+      session.connId, session.playerId, session.name, payloadText, now_ms())
+    local ok, players = pcall(function() return playerManager:GetAllPlayers() end)
+    if not ok then
+      log("Error: could not list players: " .. tostring(players))
+      return
+    end
+    for _, player in ipairs(players) do
+      local sent, err = pcall(function()
+        gameServer:SendChatMessage(player:GetConnectionId(), envelope)
+      end)
+      if not sent then
+        log("Error: send failed: " .. tostring(err))
+      end
+    end
+  end
+
+  local function hours_for(kind, value)
+    if kind == "HOURS" then
+      return value
+    end
+    local ok, hours = pcall(function() return calendar:HoursUntil(value) end)
+    if not ok then
+      log("Error: HoursUntil failed: " .. tostring(hours))
+      return nil
+    end
+    if type(hours) ~= "number" or hours ~= hours or hours <= 0 or hours > 24 then
+      log("ignoring UNTIL " .. tostring(value) .. ": bad hour span " .. tostring(hours))
+      return nil
+    end
+    return hours
+  end
+
+  local function handle_request(player, payload)
+    local kind, value = logic.parse_request(payload)
+    if kind == nil then
+      log("ignored a non-request payload on " .. CHANNEL)
+      return
+    end
+
+    local leaderOk, isLeader = pcall(function() return player:IsPartyLeader() end)
+    isLeader = leaderOk and isLeader == true
+    local now = now_ms()
+    local decision = logic.decide(isLeader, player_count(), now, lastAdvanceMs, session ~= nil)
+
+    if decision.kind ~= "advance" then
+      if decision.reason == "not_leader" then
+        log("deny (not_leader)")
+        gameServer:SendChatMessage(player:GetConnectionId(), logic.deny_message())
+      else
+        log("ignored request (" .. tostring(decision.reason) .. ")")
+      end
+      return
+    end
+
+    local hours = hours_for(kind, value)
+    if hours == nil then
+      return
+    end
+    local connId = player:GetConnectionId()
+    local playerId = player:GetId()
+    local name = tostring(player:GetUsername())
+    local state = logic.new_session(hours)
+
+    session = { state = state, total = state.remaining, connId = connId, playerId = playerId, name = name }
+    lastAdvanceMs = now
+    log(name .. " sleeps for " .. string.format("%g", hours) .. " h")
   end
 
   local function handle(player, fields, message)
     if type(fields) ~= "table" or fields["channel"] ~= CHANNEL then
-      return
+      return false
     end
-    local channel, payload = logic.decode_envelope(message)
-    if channel ~= CHANNEL then
-      return
-    end
-
-    local name = tostring(player:GetUsername())
-    local hour = logic.parse_request(payload)
-    -- GameServer:GetTick() is milliseconds (PartyService uses GetTick() + 10000
-    -- as 10 seconds and + 60000 as 60 seconds).
-    local now = gameServer:GetTick()
-    -- Count with ipairs exactly like the relay does; `#` on the sol2 container is unproven.
-    local playerCount = 0
-    for _ in ipairs(playerManager:GetAllPlayers()) do
-      playerCount = playerCount + 1
-    end
-    local decision = logic.decide(
-      player:IsPartyLeader(), playerCount, hour, now, lastAdvanceMs)
-
-    print("[SleepTogether] " .. name .. " -> " .. decision.kind ..
-      (decision.reason and (" (" .. decision.reason .. ")") or ""))
-
-    if decision.kind == "advance" then
-      lastAdvanceMs = now
-      gameServer:SetTime(decision.hour, 0, timeScale())
-      gameServer:SendGlobalChatMessage(logic.advance_message(name, decision.hour))
-    elseif decision.reason == "not_leader" then
-      gameServer:SendChatMessage(player:GetConnectionId(), logic.deny_message())
-    end
-  end
-
-  return function(player, fields, message)
-    local ok, err = pcall(handle, player, fields, message)
+    local ok, err = pcall(function()
+      local channel, payload = logic.decode_envelope(message)
+      if channel ~= CHANNEL then
+        log("ignored undecodable envelope on " .. CHANNEL)
+        return
+      end
+      handle_request(player, payload)
+    end)
     if not ok then
-      print("[SleepTogether] Error: " .. tostring(err))
+      log("Error: " .. tostring(err))
+    end
+    return true
+  end
+
+  local function run_tick(deltaSeconds)
+    local steps, finished = logic.session_tick(session.state, deltaSeconds)
+    for _, step in ipairs(steps) do
+      local ok, advanced = pcall(function() return calendar:AdvanceHours(step / 1000) end)
+      if not ok or advanced == false or advanced == nil then
+        log("Error: AdvanceHours failed: " .. tostring(advanced))
+        session = nil
+        return
+      end
+      broadcast(logic.payload_step(step))
+    end
+    if finished then
+      broadcast(logic.payload_done(session.total))
+      local name, total = session.name, session.total
+      session = nil
+      local ok, err = pcall(function()
+        gameServer:SendGlobalChatMessage(logic.advance_message(name, total / 1000))
+      end)
+      if not ok then
+        log("Error: chat message failed: " .. tostring(err))
+      end
     end
   end
+
+  local function tick(deltaSeconds)
+    if session == nil then
+      return
+    end
+    local ok, err = pcall(run_tick, deltaSeconds)
+    if not ok then
+      log("Error: " .. tostring(err))
+      session = nil
+    end
+  end
+
+  return handle, tick
 end
 
-end)()(SleepTogetherLogic, gameServer, playerManager)
+end)()(SleepTogetherLogic, gameServer, playerManager, SleepTogetherCalendar)
+if SleepTogetherTick then addEventHandler("onUpdate", SleepTogetherTick) end
 
 
 local function startsWith(value, prefix)
@@ -342,7 +546,8 @@ addEventHandler("onChatMessage", function(entityId, message)
   local senderConnectionId = player:GetConnectionId()
   local senderPlayerId = player:GetId()
   local flags = tonumber(fields["flags"]) or 0
-  pcall(SleepTogetherHandler, player, fields, message) -- Sleep Together
+  local sleepOk, sleepHandled = pcall(SleepTogetherHandler, player, fields, message) -- Sleep Together
+  if sleepOk and sleepHandled then return end
 
   -- Identity heartbeats originate with an empty payload. Replace that payload
   -- server-side with the authenticated STR PlayerId before relaying it. Peers

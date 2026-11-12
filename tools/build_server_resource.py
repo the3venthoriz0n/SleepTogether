@@ -33,10 +33,19 @@ def main():
     embed = (
         "\n-- Sleep Together (embedded; sources: server/sleeptogether/logic.lua, handler.lua)\n"
         "local SleepTogetherLogic = (function()\n" + logic + "\nend)()\n"
-        "local SleepTogetherHandler = (function()\n" + handler + "\nend)()"
-        "(SleepTogetherLogic, gameServer, playerManager)\n\n"
+        "local SleepTogetherCalendar = (function()\n"
+        "  local ok, calendar = pcall(function() return CalendarService:get() end)\n"
+        "  if ok then return calendar end\n"
+        "  return nil\n"
+        "end)()\n"
+        "local SleepTogetherHandler, SleepTogetherTick = (function()\n" + handler + "\nend)()"
+        "(SleepTogetherLogic, gameServer, playerManager, SleepTogetherCalendar)\n"
+        'if SleepTogetherTick then addEventHandler("onUpdate", SleepTogetherTick) end\n\n'
     )
-    call = "  pcall(SleepTogetherHandler, player, fields, message) -- Sleep Together\n"
+    call = (
+        "  local sleepOk, sleepHandled = pcall(SleepTogetherHandler, player, fields, message) -- Sleep Together\n"
+        "  if sleepOk and sleepHandled then return end\n"
+    )
 
     relay = insert_after(relay, ANCHOR_A, embed)
     relay = insert_after(relay, "  " + ANCHOR_B, call)
@@ -48,7 +57,9 @@ def main():
     header = (
         "-- GENERATED FILE: do not edit. Built by tools/build_server_resource.py from the\n"
         "-- upstream strpm-chat-relay %s (server/upstream/strpm-chat-relay/main.lua) plus\n"
-        "-- server/sleeptogether/{logic,handler}.lua. Edit those sources, not this output.\n\n"
+        "-- server/sleeptogether/{logic,handler}.lua. Additions: the embedded Sleep Together\n"
+        "-- block (with an onUpdate registration) and a two-line hook in onChatMessage that\n"
+        "-- stops relaying handled sleeptogether.v1 envelopes. Edit those sources, not this output.\n\n"
         % version
     )
 
