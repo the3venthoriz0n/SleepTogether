@@ -1059,4 +1059,4 @@ Other code in this repository
 
 ==============================================================================
 
-STR Plugin Messaging API client (src/STRPluginMessagingAPI.cpp and src/STRPluginMessagingAPI/STRPluginMessagingAPI.h), by Caelvanost, https://github.com/Caelvanost/STRPluginMessagingAPI: its header comments state MIT. The upstream repository publishes no separate LICENSE file, so there is no copyright line or licence text to reproduce here; see the source file headers.
+STR Plugin Messaging API client (src/STRPluginMessagingAPI.cpp and src/STRPluginMessagingAPI/STRPluginMessagingAPI.h), by Caelvanost, https://github.com/Caelvanost/STRPluginMessagingAPI: the header comment in this repository says MIT; upstream declares MIT only in its relay manifest and publishes no separate LICENSE file, so there is no copyright line or licence text to reproduce here.

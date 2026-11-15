@@ -23,8 +23,7 @@ The licence texts are reproduced unmodified in `THIRD_PARTY_NOTICES.txt` (genera
 - **hde64** (instruction-length decoder) by Vyacheslav Patkov, BSD-style licence, taken from [MinHook](https://github.com/TsudaKageyu/minhook) v1.3.4 by Tsuda Kageyu; CommonLibSSE-NG downloads it when the plugin is built.
 - **OpenVR** by Valve Corporation, BSD-3-Clause, https://github.com/ValveSoftware/openvr (submodule of CommonLibSSE-NG, linked for its VR support).
 - **vcpkg** by Microsoft (MIT, https://github.com/microsoft/vcpkg) fetches and builds the libraries above; it is not part of the plugin.
-- **STR Plugin Messaging API client** (`src/STRPluginMessagingAPI*`) by **Caelvanost**, https://github.com/Caelvanost/STRPluginMessagingAPI. The file headers say MIT. The upstream repository has no separate LICENSE file (flagged, see the README of this repository).
-
+- **STR Plugin Messaging API client** (`src/STRPluginMessagingAPI*`) by **Caelvanost**, https://github.com/Caelvanost/STRPluginMessagingAPI. The header comment in this repository says MIT; upstream declares MIT only in its relay manifest and has no separate LICENSE file (flagged).
 ## Shipped in the server resource
 
 - **STRPM chat relay** (`server/upstream`, `package/Server/strpm-chat-relay`) by **Caelvanost**, version 0.4.0, licence MIT according to its manifest. The Sleep Together handler is added by the3venthoriz0n.
