@@ -39,6 +39,8 @@ $zip    = Get-UniquePath $zip
 $zipSrv = Get-UniquePath $zipSrv
 
 Compress-Archive -Path $data -DestinationPath $zip -CompressionLevel Optimal -Force
+. (Join-Path $PSScriptRoot "legal_docs.ps1")
+Add-LegalDocs -Zip $zip -Prefix "Data/Docs/SleepTogether" -Version $Version
 Write-Host "Created $zip"
 
 # Server zip: built with System.IO.Compression so entry names use forward slashes
@@ -57,6 +59,8 @@ try {
 } finally {
     $archive.Dispose()
 }
+# The server zip carries the same licence documents (top-level Docs folder, next to strpm-chat-relay).
+Add-LegalDocs -Zip $zipSrv -Prefix "Docs/SleepTogether" -Version $Version
 Write-Host ""
 Write-Host "Archives written to:"
 Write-Host "  $zip"
