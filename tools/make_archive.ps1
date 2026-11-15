@@ -44,9 +44,9 @@ Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [System.IO.Compression.ZipFile]::Open($zip, [System.IO.Compression.ZipArchiveMode]::Create)
 try {
-    $prefix = (Resolve-Path -LiteralPath $data).Path.TrimEnd('') + ''
+    $prefix = (Resolve-Path -LiteralPath $data).Path.TrimEnd('\') + '\'
     foreach ($file in Get-ChildItem -LiteralPath $data -Recurse -File) {
-        $name  = "Data/" + $file.FullName.Substring($prefix.Length).Replace('', '/')
+        $name  = "Data/" + $file.FullName.Substring($prefix.Length).Replace('\', '/')
         $entry = $archive.CreateEntry($name, [System.IO.Compression.CompressionLevel]::Optimal)
         $in    = [System.IO.File]::OpenRead($file.FullName)
         $out   = $entry.Open()
