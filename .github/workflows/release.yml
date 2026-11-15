@@ -1,0 +1,143 @@
+name: Release
+
+# Pushing a tag like v0.2.2 (the tagged commit must be on main, or the run stops) is all a release needs: the tag IS the version.
+# The run stamps it into CMakeLists.txt, vcpkg.json, src/main.cpp and tools/make_archive.ps1, builds the plugin on Windows,
+# runs the C++ tests, regenerates and checks the server relay resource, packages dist/SleepTogether_<version>.zip (the plugin)
+# and dist/SleepTogether_Server_<version>.zip (the strpm-chat-relay server resource) and creates a GitHub release with both.
+#
+# A test tag such as v0.2.2-test1 builds the same zip and makes a GitHub PRE-RELEASE with it, so every change can get a kept
+# build without publishing it.
+#
+# There is no Nexus Mods step and no version bump commit: this repo has no Nexus page, so the stamped version numbers live
+# only in the tagged build (the numbers in the repo are not edited by the workflow).
+#
+# Run manually from the Actions tab to build and package without releasing.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-cache
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      # vcpkg builds its dependencies from source; keep the built packages between runs. The cache is
+      # keyed on the manifest, so a dependency change rebuilds only what changed.
+      - name: Prepare the vcpkg binary cache
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Tag must be on main
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor $env:GITHUB_SHA origin/main
+          if ($LASTEXITCODE -ne 0) { throw "Tag $env:GITHUB_REF_NAME is not on main; nothing was published." }
+
+      - name: Work out the version
+        id: ver
+        shell: pwsh
+        run: |
+          $suffix = ''
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            if ($env:GITHUB_REF_NAME -notmatch '^v([0-9]+\.[0-9]+\.[0-9]+)(?:-([0-9A-Za-z.]+))?$') {
+              throw "Tag $env:GITHUB_REF_NAME must look like v1.2.3 (release) or v1.2.3-test1 (test build)"
+            }
+            $v = $Matches[1]
+            if ($Matches[2]) { $suffix = $Matches[2] }
+          } else {
+            $m = Select-String -Path CMakeLists.txt -Pattern 'project\(SleepTogether VERSION ([0-9]+\.[0-9]+\.[0-9]+)'
+            if (-not $m) { throw "Could not read the version from CMakeLists.txt" }
+            $v = $m.Matches[0].Groups[1].Value
+          }
+          $full = if ($suffix) { "$v-$suffix" } else { $v }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "full=$full" >> $env:GITHUB_OUTPUT
+          "test=$(if ($suffix) { 'true' } else { 'false' })" >> $env:GITHUB_OUTPUT
+
+      - name: Stamp the version into the sources
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          function Stamp([string]$path, [string]$pattern, [string]$replacement) {
+            $text = [System.IO.File]::ReadAllText((Join-Path $PWD $path))
+            $rx = [regex]$pattern
+            if ($rx.Matches($text).Count -ne 1) { throw "Expected exactly one version match in $path" }
+            [System.IO.File]::WriteAllText((Join-Path $PWD $path), $rx.Replace($text, $replacement))
+            Write-Host "Stamped $path -> $v"
+          }
+          Stamp 'CMakeLists.txt' '(project\(SleepTogether VERSION )[0-9]+\.[0-9]+\.[0-9]+' ('${1}' + $v)
+          Stamp 'vcpkg.json' '("version-string":\s*")[0-9]+\.[0-9]+\.[0-9]+(")' ('${1}' + $v + '${2}')
+          Stamp 'src/main.cpp' '("SleepTogether )[0-9]+\.[0-9]+\.[0-9]+( loading")' ('${1}' + $v + '${2}')
+          Stamp 'tools/make_archive.ps1' '(\[string\]\$Version = ")[0-9]+\.[0-9]+\.[0-9]+(")' ('${1}' + $v + '${2}')
+
+      - name: Configure
+        shell: pwsh
+        run: cmake -S . -B out\build-release -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build out\build-release --config Release
+
+      - name: Test (C++)
+        shell: pwsh
+        run: ctest --test-dir out\build-release -C Release --output-on-failure
+
+      # The Lua tests (tests/test_logic.lua, tests/test_handler.lua) need a Lua interpreter, which the Windows runner does not
+      # have, so they are NOT run here; run them locally before tagging. What does run here: the server resource generator,
+      # and a check that the committed package/Server/strpm-chat-relay is exactly what the generator produces.
+      - name: Server resource is up to date
+        shell: pwsh
+        run: |
+          python -I tools/build_server_resource.py
+          if ($LASTEXITCODE -ne 0) { throw "build_server_resource.py failed" }
+          git diff --exit-code -- package/Server
+          if ($LASTEXITCODE -ne 0) { throw "package/Server is out of date: run python -I tools/build_server_resource.py and commit the result." }
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          powershell -File tools\make_archive.ps1 -Version ${{ steps.ver.outputs.version }}
+          if ($LASTEXITCODE -ne 0) { throw "make_archive.ps1 failed" }
+          # The script writes SleepTogether-<version>.zip and SleepTogether-Server-<version>.zip; the release names use underscores and keep a test tag's full name.
+          Copy-Item "dist\SleepTogether-${{ steps.ver.outputs.version }}.zip" "dist\SleepTogether_${{ steps.ver.outputs.full }}.zip"
+          Copy-Item "dist\SleepTogether-Server-${{ steps.ver.outputs.version }}.zip" "dist\SleepTogether_Server_${{ steps.ver.outputs.full }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SleepTogether_${{ steps.ver.outputs.full }}
+          path: |
+            dist/SleepTogether_${{ steps.ver.outputs.full }}.zip
+            dist/SleepTogether_Server_${{ steps.ver.outputs.full }}.zip
+
+      - name: GitHub release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $extra = @()
+          if ('${{ steps.ver.outputs.test }}' -eq 'true') { $extra += '--prerelease' }
+          gh release create "$env:GITHUB_REF_NAME" "dist\SleepTogether_${{ steps.ver.outputs.full }}.zip" "dist\SleepTogether_Server_${{ steps.ver.outputs.full }}.zip" --generate-notes --title "SleepTogether_${{ steps.ver.outputs.full }}" @extra

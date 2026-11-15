@@ -289,6 +289,32 @@ interpreter for the server tests.
   0.3.0 version marker, or if the server relay file lacks the Sleep Together handler.
 - Packaging never overwrites or deletes an earlier build: if a zip name is already in `dist`, both new zips get a `_yyyyMMdd-HHmmss` suffix (for example `SleepTogether-0.3.0_20261114-160500.zip`), so versions sit side by side for rollback; the script prints the final path.
 
+## Releasing
+
+**To release, tag `main`.** The tag is the version, you never edit version numbers by hand for a release.
+
+1. **Make sure `main` is what you want to ship** (the tag may only be pushed on a commit that is already on `main`, or the run stops before building anything).
+2. **Pick the next version** (`vMAJOR.MINOR.PATCH`): patch for fixes, minor for new features.
+3. **Tag and push:**
+
+        git checkout main && git pull
+        git tag v0.3.1
+        git push origin v0.3.1
+
+4. **Watch it:** `gh run watch` (or the Actions tab). The first run on a fresh cache takes a while; later runs reuse the cached build dependencies.
+5. **Check the result:** the run is green and the GitHub release has:
+
+- `SleepTogether_<version>.zip (the plugin, the `Data` folder)`
+- `SleepTogether_Server_<version>.zip (the `strpm-chat-relay` server resource)`
+
+**What the workflow does** (`.github/workflows/release.yml`, run on a Windows runner): checks the tag looks like `v1.2.3` and its commit is on `main`; stamps the version into `CMakeLists.txt`, `vcpkg.json`, `src/main.cpp` and `tools/make_archive.ps1` (it stops if any of them does not match exactly once); builds, runs the C++ tests, regenerates the server resource with `python -I tools/build_server_resource.py` and fails if it differs from the committed `package/Server`. The Lua tests are not run on the runner (no Lua interpreter there): run `lua tests/test_logic.lua` and `lua tests/test_handler.lua` locally before tagging; packages with the repo's script; uploads the zip(s) as a build artifact and creates the GitHub release. No Nexus upload and no version-bump commit are done: this repo has no Nexus page, so the numbers in the repo files stay as they are and only the tagged build carries the new version.
+
+**Test builds, one tag per change.** A tag with a suffix, such as `v0.3.1-test1`, builds the same way and creates a GitHub *pre-release* with the zip named `SleepTogether_0.3.1-test1.zip`. Use one for every change you want kept as a build, and a plain `vX.Y.Z` tag for what you publish. The numeric part of the tag is what gets stamped into the build.
+
+**Dry run, no release:** Actions tab, "Release", "Run workflow" on `main`. It builds and packages and uploads the zip as a build artifact; it does not create a release.
+
+**If something goes wrong.** *"Tag ... is not on main" or "must look like v1.2.3":* delete the tag (`git push origin :refs/tags/vX.Y.Z` and `git tag -d vX.Y.Z`), fix, tag again. *The build fails on the runner:* use the dry run after each fix instead of pushing more tags. *A zip you package locally has the old version:* normal; only the workflow stamps the tag version.
+
 ## License
 
 CommonLibSSE-NG is GPL-3.0-or-later and is linked into the plugin, so this plugin is GPL too (see COPYING).
