@@ -38,7 +38,23 @@ New-Item -ItemType Directory -Path $dist -Force | Out-Null
 $zip    = Get-UniquePath $zip
 $zipSrv = Get-UniquePath $zipSrv
 
-Compress-Archive -Path $data -DestinationPath $zip -CompressionLevel Optimal -Force
+# Build the zip with System.IO.Compression so entry names use forward slashes
+# (Compress-Archive on Windows PowerShell 5.1 writes backslashes, which Vortex and Nexus installers handle badly).
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [System.IO.Compression.ZipFile]::Open($zip, [System.IO.Compression.ZipArchiveMode]::Create)
+try {
+    $prefix = (Resolve-Path -LiteralPath $data).Path.TrimEnd('') + ''
+    foreach ($file in Get-ChildItem -LiteralPath $data -Recurse -File) {
+        $name  = "Data/" + $file.FullName.Substring($prefix.Length).Replace('', '/')
+        $entry = $archive.CreateEntry($name, [System.IO.Compression.CompressionLevel]::Optimal)
+        $in    = [System.IO.File]::OpenRead($file.FullName)
+        $out   = $entry.Open()
+        try { $in.CopyTo($out) } finally { $out.Dispose(); $in.Dispose() }
+    }
+} finally {
+    $archive.Dispose()
+}
 . (Join-Path $PSScriptRoot "legal_docs.ps1")
 Add-LegalDocs -Zip $zip -Prefix "Data/Docs/SleepTogether" -Version $Version
 Write-Host "Created $zip"
