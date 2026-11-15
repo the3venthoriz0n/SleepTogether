@@ -287,6 +287,7 @@ interpreter for the server tests.
 - Zips: `make_archive.bat` writes `dist\SleepTogether-0.3.0.zip` (the `Data` folder) and
   `dist\SleepTogether-Server-0.3.0.zip` (the `strpm-chat-relay` folder). It refuses to run if the DLL lacks the
   0.3.0 version marker, or if the server relay file lacks the Sleep Together handler.
+- Packaging never overwrites or deletes an earlier build: if a zip name is already in `dist`, both new zips get a `_yyyyMMdd-HHmmss` suffix (for example `SleepTogether-0.3.0_20261114-160500.zip`), so versions sit side by side for rollback; the script prints the final path.
 
 ## License
 

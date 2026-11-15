@@ -25,8 +25,18 @@ if (-not (Test-Path -LiteralPath $main)) { throw "Server resource not found: $ma
 if (-not (Test-Path -LiteralPath $mani)) { throw "Server manifest not found: $mani. Run: python -I tools/build_server_resource.py" }
 if (-not ([System.IO.File]::ReadAllText($main)).Contains("SleepTogetherHandler")) { throw "SleepTogetherHandler not found in $main. Run: python -I tools/build_server_resource.py" }
 
+# Never replace an earlier build: if the target already exists, add a _yyyyMMdd-HHmmss suffix before the extension.
+function Get-UniquePath([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return $Path }
+    $dir  = Split-Path -Parent $Path
+    $base = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+    $ext  = [System.IO.Path]::GetExtension($Path)
+    return (Join-Path $dir ("{0}_{1}{2}" -f $base, (Get-Date -Format "yyyyMMdd-HHmmss"), $ext))
+}
+
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
-foreach ($z in @($zip, $zipSrv)) { if (Test-Path -LiteralPath $z) { Remove-Item -LiteralPath $z -Force } }
+$zip    = Get-UniquePath $zip
+$zipSrv = Get-UniquePath $zipSrv
 
 Compress-Archive -Path $data -DestinationPath $zip -CompressionLevel Optimal -Force
 Write-Host "Created $zip"
@@ -47,4 +57,7 @@ try {
 } finally {
     $archive.Dispose()
 }
-Write-Host "Created $zipSrv"
+Write-Host ""
+Write-Host "Archives written to:"
+Write-Host "  $zip"
+Write-Host "  $zipSrv"
