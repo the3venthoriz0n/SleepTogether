@@ -8,8 +8,10 @@ name: Release
 # A test tag such as v0.2.2-test1 builds the same zip and makes a GitHub PRE-RELEASE with it, so every change can get a kept
 # build without publishing it.
 #
-# There is no Nexus Mods step and no version bump commit: this repo has no Nexus page, so the stamped version numbers live
-# only in the tagged build (the numbers in the repo are not edited by the workflow).
+# A real release (v1.2.3) also uploads the plugin zip to Nexus Mods as a new version of the main file, then commits the
+# stamped version numbers back to main. Test tags skip both. The server relay zip is attached to the GitHub release only;
+# add it to the Nexus page by hand. Needs secret NEXUSMODS_API_KEY and variables NEXUS_FILE_ID and NEXUS_MOD_ID (the long
+# "Unique Mod ID" from the Advanced panel); without them the Nexus step is skipped.
 #
 # Run manually from the Actions tab to build and package without releasing.
 on:
@@ -26,6 +28,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
+      NEXUS_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-cache
     steps:
       - uses: actions/checkout@v7
@@ -155,3 +158,31 @@ jobs:
           $extra = @()
           if ('${{ steps.ver.outputs.test }}' -eq 'true') { $extra += '--prerelease' }
           gh release create "$env:GITHUB_REF_NAME" "dist\SleepTogether_${{ steps.ver.outputs.full }}_source.zip" "dist\SleepTogether_${{ steps.ver.outputs.full }}.zip" "dist\SleepTogether_Server_${{ steps.ver.outputs.full }}.zip" --generate-notes --title "SleepTogether_${{ steps.ver.outputs.full }}" @extra
+
+      - name: Upload to Nexus Mods
+        if: github.ref_type == 'tag' && steps.ver.outputs.test != 'true' && env.NEXUS_KEY != '' && vars.NEXUS_FILE_ID != ''
+        uses: Nexus-Mods/upload-action@v1.0.0-beta.11
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ vars.NEXUS_FILE_ID }}
+          filename: dist/SleepTogether_${{ steps.ver.outputs.version }}.zip
+          version: ${{ steps.ver.outputs.version }}
+          display_name: SleepTogether_${{ steps.ver.outputs.version }}
+          description: SleepTogether_${{ steps.ver.outputs.version }}
+          category: main
+          update_mod_version: "true"
+          mod_id: ${{ vars.NEXUS_MOD_ID }}
+          changelog: See https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+
+      - name: Commit the version bump back to main
+        if: always() && github.ref_type == 'tag' && steps.ver.outputs.test != 'true' && steps.package.conclusion == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CMakeLists.txt vcpkg.json src/main.cpp tools/make_archive.ps1
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { Write-Host "Sources already at this version"; exit 0 }
+          git commit -m "Bump version to ${{ steps.ver.outputs.version }} (release $env:GITHUB_REF_NAME)"
+          git push origin HEAD:main
