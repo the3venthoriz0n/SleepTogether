@@ -75,3 +75,7 @@ server's:
 Replace the `strpm-chat-relay` resource on the server with the new one from
 `SleepTogether-Server-0.3.0.zip`, then restart the server. Both the patched server and the
 new relay are required.
+
+## Licence
+
+These patches modify Skyrim Together Reborn's server source, so they are derivative works of it and are licensed under the GPL-3.0-or-later like the rest of that project (upstream: https://github.com/tiltedphoques/TiltedEvolution; the patched source and its MODIFICATIONS.md are in https://github.com/the3venthoriz0n/TiltedEvolution, branch `sleep-on-potions`). They are not by, or endorsed by, the upstream authors.
