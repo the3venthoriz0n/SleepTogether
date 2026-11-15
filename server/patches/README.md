@@ -78,4 +78,4 @@ new relay are required.
 
 ## Licence
 
-These patches modify Skyrim Together Reborn's server source, so they are derivative works of it and are licensed under the GPL-3.0-or-later like the rest of that project (upstream: https://github.com/tiltedphoques/TiltedEvolution; the patched source and its MODIFICATIONS.md are in https://github.com/the3venthoriz0n/TiltedEvolution, branch `sleep-on-potions`). They are not by, or endorsed by, the upstream authors.
+These patches modify Skyrim Together Reborn's server source, so they are derivative works of it and are licensed under the GPL-3.0-or-later like the rest of that project (upstream: https://github.com/tiltedphoques/TiltedEvolution; the patched source is in https://github.com/the3venthoriz0n/TiltedEvolution, branch `sleep-on-potions`). They are not by, or endorsed by, the upstream authors.
