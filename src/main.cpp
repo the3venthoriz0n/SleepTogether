@@ -41,7 +41,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
     SKSE::Init(a_skse);
     SetupLog();
-    spdlog::info("SleepTogether 0.3.0 loading");
+    spdlog::info("SleepTogether 0.3.2 loading");
 
     SleepTogether::Config::Load();
     if (SleepTogether::Config::Get().debug) {
